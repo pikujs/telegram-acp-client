@@ -4,7 +4,9 @@ A modular multi-bot management system for the **[Agent Client Protocol (ACP)](ht
 
 The Agent Client Protocol is an open standard designed to enable seamless communication between AI agents and their clients through a structured, JSON-RPC-based interface. It allows agents to perform complex tasks like file manipulation, terminal execution, and multi-step reasoning while maintaining a secure, human-in-the-loop approval workflow.
 
-This project allows you to deploy and manage multiple independent Telegram bots, each acting as a client for a coding agent (like `gemini-cli`), with separate configurations, databases, and systemd services.
+This project allows you to deploy and manage multiple independent Telegram bots, each acting as a client for an AI agent that supports the **Agent Client Protocol**. Any ACP-compatible agent can be used, including **gemini-cli**, **claude-code**, **codex**, and others.
+
+---
 
 ## 🌟 Key Features
 
@@ -65,7 +67,7 @@ telegram-acp-client new my-bot
 ```
 This interactive command will:
 - Create a `{name}.json` configuration in your platform's user config directory.
-- Ask for your **Telegram Token** and **Allowed Users**.
+- Ask for your **Telegram Token** ([How to create a bot token](https://core.telegram.org/bots#how-do-i-create-a-bot)) and **Allowed Users**.
 - Provide instructions for starting the bot.
 
 ### 2. Run a Bot
