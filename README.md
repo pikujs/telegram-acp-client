@@ -1,6 +1,10 @@
 # Telegram ACP Client 🤖
 
-A modular multi-bot management system for the **Agent Client Protocol (ACP)**. This project allows you to deploy and manage multiple independent Telegram bots, each acting as a client for a coding agent (like `gemini-cli`), with separate configurations, databases, and systemd services.
+A modular multi-bot management system for the **[Agent Client Protocol (ACP)](https://agentclientprotocol.com/get-started/introduction)**. 
+
+The Agent Client Protocol is an open standard designed to enable seamless communication between AI agents and their clients through a structured, JSON-RPC-based interface. It allows agents to perform complex tasks like file manipulation, terminal execution, and multi-step reasoning while maintaining a secure, human-in-the-loop approval workflow.
+
+This project allows you to deploy and manage multiple independent Telegram bots, each acting as a client for a coding agent (like `gemini-cli`), with separate configurations, databases, and systemd services.
 
 ## 🌟 Key Features
 
@@ -23,38 +27,33 @@ A modular multi-bot management system for the **Agent Client Protocol (ACP)**. T
 
 ## 🚀 Installation
 
-> [!IMPORTANT]
-> **Multibot service management** and **background shell tasks** are only supported on **Linux machines with systemd**.
+### General Installation (Linux, macOS, Windows)
+The recommended way to install `telegram-acp-client` is via `pipx`, which works on all platforms:
 
-### Scenario 1: Arch Linux (via AUR/PKGBUILD)
+```bash
+pipx install git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
+```
+
+### Arch Linux (via AUR/PKGBUILD)
 If you are on Arch Linux, you can install the package and its systemd service template using the provided `PKGBUILD`:
 
-1. **Clone the repository:**
+1. **Clone and build:**
    ```bash
    git clone https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
    cd telegram-acp-client
-   ```
-2. **Build and install:**
-   ```bash
    makepkg -si
    ```
-   This will install the `telegram-acp-client` executable and place the systemd service template in `/usr/lib/systemd/user/`.
+   This installs the executable and places the systemd service template in `/usr/lib/systemd/user/`.
 
-### Scenario 2: General Installation (Linux, macOS, Windows via pipx)
-Use `pipx` to install the package in an isolated environment on any supported platform:
+### Systemd Setup (Other Linux distros/Not installed from PKGBUILD)
+To use the automated service management features on Linux, install the service template:
+```bash
+mkdir -p ~/.config/systemd/user/
+cp telegram-acp-client@.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+```
 
-1. **Install the package:**
-   ```bash
-   pipx install git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
-   ```
-
-2. **Install the systemd service template (Linux Only):**
-   To use the multibot management features on Linux, you must manually install the service template to your user's systemd directory:
-   ```bash
-   mkdir -p ~/.config/systemd/user/
-   cp telegram-acp-client@.service ~/.config/systemd/user/
-   systemctl --user daemon-reload
-   ```
+---
 
 ## 🛠 Multi-Bot CLI Management
 
@@ -65,24 +64,31 @@ The `telegram-acp-client` command is your primary tool for managing bot instance
 telegram-acp-client new my-bot
 ```
 This interactive command will:
-- Create a directory at `~/.config/telegram-acp-client/my-bot/`.
+- Create a `{name}.json` configuration in your platform's user config directory.
 - Ask for your **Telegram Token** and **Allowed Users**.
-- Save these to `bot.json`.
-- Provide **instructions for installing the systemd user service**.
+- Provide instructions for starting the bot.
 
-### 2. Run a Bot (Manual/Dev)
+### 2. Run a Bot
+You can run a bot by its name (if it's in your config dir) or by providing an explicit path to a JSON config file:
+
+**By Name:**
 ```bash
-telegram-acp-client run --config ~/.config/telegram-acp-client/my-bot/
+telegram-acp-client run my-bot
 ```
 
-### 3. Service Management
-Once you've installed the systemd user service template, you can manage your bots directly via the CLI (**no `sudo` required**):
+**By Config File:**
+```bash
+telegram-acp-client run --config ~/path/to/bot-config.json
+```
+
+### 3. Service Management (Linux/systemd only)
+On Linux, you can manage your bots as background services (**no `sudo` required**):
 ```bash
 telegram-acp-client status my-bot
 telegram-acp-client start my-bot
 telegram-acp-client restart my-bot
-telegram-acp-client logs my-bot -f
 telegram-acp-client stop my-bot
+telegram-acp-client logs my-bot -f
 ```
 
 ## ⚙️ Bot Config (`bot.json`)
