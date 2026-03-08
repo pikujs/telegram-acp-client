@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram ACP Bot - %i
+After=network.target
+
+[Service]
+Type=simple
+# Automatically finds the config for the specific bot instance
+# %h is the user's home directory, %i is the part after the @
+Environment=TELEGRAM_ACP_CONFIG_DIR=%h/.config/telegram-acp-client/%i
+# Using /usr/bin/env allows finding the executable in the system PATH (works for pipx)
+ExecStart=/usr/bin/env telegram-acp-client run
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
