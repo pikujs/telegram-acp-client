@@ -25,3 +25,4 @@ default.json
 *.db
 *.json
 !example-bot.json
+promotions/
