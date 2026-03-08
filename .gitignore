@@ -26,3 +26,4 @@ default.json
 *.json
 !example-bot.json
 promotions/
+telegram-acp-dev@.service

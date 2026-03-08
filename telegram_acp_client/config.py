@@ -22,19 +22,20 @@ class Settings:
         default_config_root = Path(user_config_dir("telegram-acp-client"))
         default_data_root = Path(user_data_dir("telegram-acp-client"))
 
-        # 2. Determine bot name (defaulting to "default")
-        self.bot_name = bot_name or "default"
-
-        # 3. Determine config file path and data directory
+        # 2. Determine config file path and data directory
         if config_file:
             target_config_file = Path(config_file).expanduser().resolve()
-            # If config file is provided but bot_name was not explicitly passed,
-            # store the database locally next to the config file.
+            # Derive bot name from filename if not explicitly provided
+            self.bot_name = bot_name or target_config_file.stem
+            
             if bot_name is None:
+                # If config file is provided but bot_name was not explicitly passed,
+                # store the database locally next to the config file.
                 self.DATA_DIR = target_config_file.parent
             else:
                 self.DATA_DIR = default_data_root
         else:
+            self.bot_name = bot_name or "default"
             # Look for {bot_name}.json in the default config root
             target_config_file = default_config_root / f"{self.bot_name}.json"
             self.DATA_DIR = default_data_root
