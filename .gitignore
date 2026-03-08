@@ -24,3 +24,4 @@ bot.json
 default.json
 *.db
 *.json
+!example-bot.json

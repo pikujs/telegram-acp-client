@@ -1,0 +1,6 @@
+{
+    "telegram_token": "your_token_here",
+    "allowed_users": ["your_username", "another_username"],
+    "agent_command": "gemini --experimental-acp",
+    "log_level": "INFO"
+}
