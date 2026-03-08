@@ -284,8 +284,17 @@ class ACPService:
         if db_id in self.active_processes:
             session = self.active_processes.pop(db_id)
             if session.proc.returncode is None:
+                logger.info(f"Stopping agent session {db_id} (terminating first)")
                 session.proc.terminate()
-                await session.proc.wait()
+                try:
+                    # Give it 2 seconds to terminate gracefully
+                    await asyncio.wait_for(session.proc.wait(), timeout=2.0)
+                    logger.info(f"Agent session {db_id} terminated gracefully")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Agent session {db_id} did not terminate in 2s, killing it")
+                    session.proc.kill()
+                    await session.proc.wait()
+                    logger.info(f"Agent session {db_id} killed successfully")
 
 
 acp_service = ACPService()

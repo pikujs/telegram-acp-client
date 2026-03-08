@@ -107,9 +107,14 @@ class TerminalService:
             try:
                 task.proc.terminate()
                 try:
+                    # Wait for graceful termination
                     await asyncio.wait_for(task.proc.wait(), timeout=2.0)
+                    logger.info(f"Task {task_id} terminated gracefully")
                 except asyncio.TimeoutError:
+                    logger.warning(f"Task {task_id} did not terminate in 2s, killing it")
                     task.proc.kill()
+                    await task.proc.wait()
+                    logger.info(f"Task {task_id} killed")
                 return True
             except Exception as e:
                 logger.error(f"Error killing task {task_id}: {e}")

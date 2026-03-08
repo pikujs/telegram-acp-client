@@ -23,10 +23,37 @@ A modular multi-bot management system for the **Agent Client Protocol (ACP)**. T
 
 ## 🚀 Installation
 
-Install the package globally using `pipx`:
-```bash
-pipx install git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
-```
+> [!IMPORTANT]
+> **Multibot service management** and **background shell tasks** are only supported on **Linux machines with systemd**.
+
+### Scenario 1: Arch Linux (via AUR/PKGBUILD)
+If you are on Arch Linux, you can install the package and its systemd service template using the provided `PKGBUILD`:
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
+   cd telegram-acp-client
+   ```
+2. **Build and install:**
+   ```bash
+   makepkg -si
+   ```
+   This will install the `telegram-acp-client` executable and place the systemd service template in `/usr/lib/systemd/user/`.
+
+### Scenario 2: Other Linux Distributions (via pipx)
+For other distributions, use `pipx` to install the package in an isolated environment:
+
+1. **Install the package:**
+   ```bash
+   pipx install git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
+   ```
+2. **Install the systemd service template:**
+   To use the multibot management features, you must manually install the service template to your user's systemd directory:
+   ```bash
+   mkdir -p ~/.config/systemd/user/
+   cp telegram-acp-client@.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   ```
 
 ## 🛠 Multi-Bot CLI Management
 

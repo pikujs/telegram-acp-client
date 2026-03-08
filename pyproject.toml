@@ -19,6 +19,7 @@ dependencies = [
     "httpx>=0.28.1",
     "python-dotenv>=1.2.2",
     "python-telegram-bot[callback-data]>=22.6",
+    "platformdirs>=4.0.0",
 ]
 
 [project.scripts]

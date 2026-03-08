@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List
 from pathlib import Path
-from dotenv import load_dotenv
+from platformdirs import user_config_dir, user_data_dir
 
 
 @dataclass
@@ -14,39 +14,49 @@ class Settings:
     AGENT_COMMAND: str = "gemini-cli"
     LOG_LEVEL: str = "INFO"
     CONFIG_DIR: Path = Path.cwd()
+    DATA_DIR: Path = Path.cwd()
     DATABASE_PATH: str = "database.db"
 
-    def load(self, config_dir: str = None):
-        # 1. Determine config directory
-        env_config_dir = os.getenv("TELEGRAM_ACP_CONFIG_DIR")
-        target_dir = config_dir or env_config_dir
+    def load(self, config_file: str = None, bot_name: str = None):
+        # 1. Determine base directories
+        default_config_root = Path(user_config_dir("telegram-acp-client"))
+        default_data_root = Path(user_data_dir("telegram-acp-client"))
 
-        print(f"targetDir: {target_dir}")
+        # 2. Determine bot name (defaulting to "default")
+        self.bot_name = bot_name or "default"
 
-        if target_dir:
-            self.CONFIG_DIR = Path(target_dir).expanduser().resolve()
-            self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            self.DATABASE_PATH = str(self.CONFIG_DIR / "database.db")
-
-            json_config = self.CONFIG_DIR / "bot.json"
-            if json_config.exists():
-                try:
-                    data = json.loads(json_config.read_text())
-                    self.TELEGRAM_BOT_TOKEN = data.get("telegram_token", "")
-                    self.ALLOWED_USERS = data.get("allowed_users", [])
-                    self.AGENT_COMMAND = data.get("agent_command", "gemini-cli")
-                    self.LOG_LEVEL = data.get("log_level", "INFO")
-                except Exception as e:
-                    print(f"Error loading JSON config: {e}")
+        # 3. Determine config file path and data directory
+        if config_file:
+            target_config_file = Path(config_file).expanduser().resolve()
+            # If config file is provided but bot_name was not explicitly passed,
+            # store the database locally next to the config file.
+            if bot_name is None:
+                self.DATA_DIR = target_config_file.parent
+            else:
+                self.DATA_DIR = default_data_root
         else:
-            # Fallback to .env for local development
-            load_dotenv()
-            self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-            users = os.getenv("ALLOWED_USERS", "")
-            self.ALLOWED_USERS = [u.strip() for u in users.split(",") if u.strip()]
-            self.AGENT_COMMAND = os.getenv("AGENT_COMMAND", "gemini-cli")
-            self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-            self.DATABASE_PATH = "database.db"
+            # Look for {bot_name}.json in the default config root
+            target_config_file = default_config_root / f"{self.bot_name}.json"
+            self.DATA_DIR = default_data_root
+
+        self.CONFIG_DIR = target_config_file.parent
+        self.DATABASE_PATH = str(self.DATA_DIR / f"{self.bot_name}.db")
+
+        # Ensure directories exist
+        self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        if target_config_file.exists():
+            try:
+                data = json.loads(target_config_file.read_text())
+                self.TELEGRAM_BOT_TOKEN = data.get("telegram_token", "")
+                self.ALLOWED_USERS = data.get("allowed_users", [])
+                self.AGENT_COMMAND = data.get("agent_command", "gemini-cli")
+                self.LOG_LEVEL = data.get("log_level", "INFO")
+            except Exception as e:
+                print(f"Error loading JSON config: {e}")
+        else:
+            print(f"⚠️ Warning: Config file not found at {target_config_file}")
 
 
 settings = Settings()

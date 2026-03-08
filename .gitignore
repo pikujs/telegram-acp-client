@@ -21,3 +21,6 @@ agent-shell
 # env files
 .env
 bot.json
+default.json
+*.db
+*.json

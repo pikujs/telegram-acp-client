@@ -13,15 +13,25 @@ from telegram.ext import (
     filters,
     CallbackQueryHandler,
 )
+from platformdirs import user_config_dir, user_data_dir
 
 from telegram_acp_client.config import settings
 
 
 def get_default_config_root():
-    xdg_config = os.getenv("XDG_CONFIG_HOME")
-    if xdg_config:
-        return Path(xdg_config) / "telegram-acp-client"
-    return Path.home() / ".config" / "telegram-acp-client"
+    # Use platform-specific user config dir
+    return Path(user_config_dir("telegram-acp-client"))
+
+
+def get_default_data_root():
+    # Use platform-specific user data dir
+    return Path(user_data_dir("telegram-acp-client"))
+
+
+def check_linux_only():
+    if sys.platform != "linux":
+        print("❌ Error: systemd service management is only supported on Linux.")
+        sys.exit(1)
 
 
 async def post_init(application):
@@ -35,9 +45,9 @@ async def error_handler(update, context):
     logging.error(f"Update {update} caused error {context.error}")
 
 
-def run_bot(config_dir: str):
+def run_bot(config_file: str = None, bot_name: str = None):
     # 1. Load Settings
-    settings.load(config_dir)
+    settings.load(config_file=config_file, bot_name=bot_name)
 
     # 2. Setup Logging
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
@@ -46,7 +56,11 @@ def run_bot(config_dir: str):
         level=log_level,
     )
     logging.getLogger().setLevel(log_level)
-    logging.info(f"🤖 Bot starting from: {config_dir}")
+    
+    source = bot_name or config_file or "default"
+    logging.info(f"🤖 Bot starting (Instance: {source})")
+    logging.info(f"📂 Config root: {settings.CONFIG_DIR}")
+    logging.info(f"🗄️ Database: {settings.DATABASE_PATH}")
 
     if not settings.TELEGRAM_BOT_TOKEN:
         logging.error("No TELEGRAM_TOKEN found in config!")
@@ -104,9 +118,15 @@ def run_bot(config_dir: str):
 
 
 def cmd_new(args):
-    bot_dir = get_default_config_root() / args.name
-    bot_dir.mkdir(parents=True, exist_ok=True)
-    config_file = bot_dir / "bot.json"
+    name = args.name or "default"
+    config_root = get_default_config_root()
+    data_root = get_default_data_root()
+
+    config_root.mkdir(parents=True, exist_ok=True)
+    data_root.mkdir(parents=True, exist_ok=True)
+    
+    config_file = config_root / f"{name}.json"
+    data_file = data_root / f"{name}.db"
 
     if config_file.exists() and not args.force:
         print(
@@ -130,14 +150,20 @@ def cmd_new(args):
 
     config_file.write_text(json.dumps(config, indent=4))
     print(f"\n✅ Created config at {config_file}")
+    print(f"✅ Data will be stored at {data_file}")
+
+    if sys.platform != "linux":
+        print("\nℹ️ Systemd service skip: You are on a non-Linux platform.")
+        print(f"   To run your bot manually: telegram-acp-client run {name}")
+        return
 
     if args.no_start:
         print(
-            f"\n📝 Service start skipped. To start manually: telegram-acp-client start {args.name}"
+            f"\n📝 Service start skipped. To start manually: telegram-acp-client start {name}"
         )
         return
 
-    print(f"\n🚀 Setting up systemd user service for '{args.name}'...")
+    print(f"\n🚀 Setting up systemd user service for '{name}'...")
     try:
         # 1. Reload daemon
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
@@ -147,7 +173,7 @@ def cmd_new(args):
                 "systemctl",
                 "--user",
                 "enable",
-                f"telegram-acp-client@{args.name}.service",
+                f"telegram-acp-client@{name}.service",
             ],
             check=True,
         )
@@ -157,11 +183,11 @@ def cmd_new(args):
                 "systemctl",
                 "--user",
                 "start",
-                f"telegram-acp-client@{args.name}.service",
+                f"telegram-acp-client@{name}.service",
             ],
             check=True,
         )
-        print(f"✅ Service 'telegram-acp-client@{args.name}' is now running.")
+        print(f"✅ Service 'telegram-acp-client@{name}' is now running.")
     except Exception as e:
         print(f"⚠️ Warning: Could not automatically start service: {e}")
         print(
@@ -170,11 +196,16 @@ def cmd_new(args):
 
 
 def cmd_run(args):
-    run_bot(args.config)
+    if args.config:
+        run_bot(config_file=args.config)
+    else:
+        run_bot(bot_name=args.name)
 
 
 def manage_service(bot_name, action):
-    service_name = f"telegram-acp-client@{bot_name}.service"
+    check_linux_only()
+    name = bot_name or "default"
+    service_name = f"telegram-acp-client@{name}.service"
     cmd = ["systemctl", "--user", action, service_name]
     print(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd)
@@ -186,11 +217,12 @@ def main():
 
     # run
     run_parser = subparsers.add_parser("run", help="Run a bot instance")
-    run_parser.add_argument("--config", help="Path to bot config directory")
+    run_parser.add_argument("name", nargs="?", help="Name of the bot (default: default)")
+    run_parser.add_argument("--config", help="Path to bot config JSON file (overrides name)")
 
     # new
     new_parser = subparsers.add_parser("new", help="Setup a new bot configuration")
-    new_parser.add_argument("name", help="Unique name for the bot")
+    new_parser.add_argument("name", nargs="?", help="Unique name for the bot (default: default)")
     new_parser.add_argument(
         "--force", action="store_true", help="Overwrite existing config"
     )
@@ -201,11 +233,11 @@ def main():
     # status / restart / stop / start
     for cmd in ["status", "restart", "start", "stop", "enable", "disable"]:
         p = subparsers.add_parser(cmd, help=f"{cmd.capitalize()} the bot service")
-        p.add_argument("name", help="Name of the bot")
+        p.add_argument("name", nargs="?", help="Name of the bot (default: default)")
 
     # logs
     log_p = subparsers.add_parser("logs", help="View bot service logs")
-    log_p.add_argument("name", help="Name of the bot")
+    log_p.add_argument("name", nargs="?", help="Name of the bot (default: default)")
     log_p.add_argument("-f", "--follow", action="store_true", help="Follow logs")
 
     args = parser.parse_args()
@@ -217,6 +249,7 @@ def main():
     elif args.command in ["status", "restart", "stop", "enable", "disable"]:
         manage_service(args.name, args.command)
     elif args.command == "logs":
+        check_linux_only()
         cmd = ["journalctl", "--user", "-u", f"telegram-acp-client@{args.name}.service"]
         if args.follow:
             cmd.append("-f")
