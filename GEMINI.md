@@ -86,6 +86,28 @@ The application is built using an asynchronous, service-oriented architecture de
 5. `handle_callback` looks up the future, sets the result (or cancels the task), and updates the message.
 6. The `acp_service` receives the result and returns it to the agent.
 
+## 🛠 Local Development Setup
+
+### 1. Development Systemd Service
+For local development, use `telegram-acp-dev@.service`. This service uses `uv run` to execute the code directly from your project directory, ensuring that any changes you make are reflected after a service restart.
+
+**Setup:**
+1. Symlink the service file to your systemd user directory:
+   ```bash
+   mkdir -p ~/.config/systemd/user/
+   ln -sf $(pwd)/telegram-acp-dev@.service ~/.config/systemd/user/
+   ```
+2. Reload systemd:
+   ```bash
+   systemctl --user daemon-reload
+   ```
+
+**Usage:**
+- **Start:** `systemctl --user start telegram-acp-dev@{botname}`
+- **Stop:** `systemctl --user stop telegram-acp-dev@{botname}`
+- **Restart:** `systemctl --user restart telegram-acp-dev@{botname}`
+- **Logs:** `journalctl --user -u telegram-acp-dev@{botname} -f`
+
 ## 🛠 Troubleshooting & How-Tos
 
 ### Restarting a Stuck Session
