@@ -18,18 +18,18 @@ The application is built using an asynchronous, service-oriented architecture de
 ## 📜 CLI Commands Reference
 
 ### `new <name>`
-- Creates the directory structure in `$XDG_CONFIG_HOME/telegram-acp-client/{name}/`.
-- Generates `bot.json` with your credentials.
+- Creates the directory structure in platform-specific user config dir.
+- Generates `{name}.json` with your credentials.
 - Prints a template for a systemd unit file.
 
-### `run [--config PATH]`
+### `run [--config PATH] [name]`
 - The actual bot execution engine.
-- If `--config` is omitted, it looks for the `TELEGRAM_ACP_CONFIG_DIR` environment variable.
+- If `name` is provided, it looks for `{name}.json` in the default config root.
 - This is the entry point used by the systemd service.
 
 ### `status/restart/stop/enable/disable/start <name>`
 - Convenience wrappers around `systemctl --user` (no `sudo` required).
-- Assumes the service template `telegram-acp-client@.service` is installed in `~/.config/systemd/user/`.
+- Assumes the service template `telegram-acp-client@.service` is installed.
 
 ### `logs <name> [-f]`
 - Wrapper around `journalctl --user -u telegram-acp-client@{name}.service`.
@@ -60,6 +60,15 @@ The application is built using an asynchronous, service-oriented architecture de
 - **Mandate:** Respect Telegram's Markdown V1 limitations.
 - **Rule:** Use `escape_markdown` for any variable text. Ensure code blocks are closed/opened correctly when splitting long messages.
 
+### 6. Security Checks
+- **Mandate:** Before committing any changes, the developer (or agent) must perform a manual audit of the staged diffs.
+- **Checklist:**
+    - No Telegram Bot Tokens (e.g., `123456:ABC...`).
+    - No personal user names or absolute local paths (e.g., `/home/username/...`).
+    - No hardcoded credentials or environment-specific values in the code.
+    - Ensure `.gitignore` correctly covers any new sensitive files (like `.db` or `.json` config files).
+- **Tool:** Use `git diff --staged` and search for common patterns like `TOKEN`, `KEY`, or `/home/`.
+
 ## 🔄 Core Workflows
 
 ### Creating a New Command
@@ -85,14 +94,14 @@ If the agent is in a loop or unresponsive:
 2. If that fails, use `/restart` (kills the process and starts a fresh one).
 
 ### Viewing Deep Logs
-Set `LOG_LEVEL=DEBUG` in `.env` to see:
+Set `LOG_LEVEL=DEBUG` in your config to see:
 - Every raw ACP message exchanged with the agent.
 - Detailed callback data for button clicks.
 - Tracebacks for Markdown parsing failures.
 
 ### Inspecting Database
-The SQLite database `database.db` can be inspected via CLI:
+The SQLite database `{name}.db` can be inspected via CLI:
 ```bash
-sqlite3 database.db "SELECT * FROM messages WHERE session_id=1;"
+sqlite3 ~/.local/share/telegram-acp-client/default.db "SELECT * FROM messages WHERE session_id=1;"
 ```
 Or use the provided `telegram_acp_client/read.py` utility.

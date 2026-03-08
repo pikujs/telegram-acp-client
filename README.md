@@ -40,15 +40,16 @@ If you are on Arch Linux, you can install the package and its systemd service te
    ```
    This will install the `telegram-acp-client` executable and place the systemd service template in `/usr/lib/systemd/user/`.
 
-### Scenario 2: Other Linux Distributions (via pipx)
-For other distributions, use `pipx` to install the package in an isolated environment:
+### Scenario 2: General Installation (Linux, macOS, Windows via pipx)
+Use `pipx` to install the package in an isolated environment on any supported platform:
 
 1. **Install the package:**
    ```bash
    pipx install git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git
    ```
-2. **Install the systemd service template:**
-   To use the multibot management features, you must manually install the service template to your user's systemd directory:
+
+2. **Install the systemd service template (Linux Only):**
+   To use the multibot management features on Linux, you must manually install the service template to your user's systemd directory:
    ```bash
    mkdir -p ~/.config/systemd/user/
    cp telegram-acp-client@.service ~/.config/systemd/user/
