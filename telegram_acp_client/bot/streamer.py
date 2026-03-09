@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_LENGTH = 4000
 
 class MessageStreamer:
-    def __init__(self, context, chat_id, db_id):
+    def __init__(self, context, chat_id, db_id, prefix="", role="agent"):
         self.context = context
         self.chat_id = chat_id
         self.db_id = db_id
+        self.prefix = prefix
+        self.role = role
         self.messages = []
-        self.buffer = ""
+        self.buffer = prefix
         self.last_sent_text = ""
         self._updater_task = None
         self._stop_event = asyncio.Event()
@@ -98,5 +100,8 @@ class MessageStreamer:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._updater_task
         await self._flush()
-        if self.buffer.strip():
-            await db_service.save_message(self.db_id, "agent", self.buffer)
+        
+        # Remove prefix before saving to DB
+        content_to_save = self.buffer[len(self.prefix):] if self.buffer.startswith(self.prefix) else self.buffer
+        if content_to_save.strip():
+            await db_service.save_message(self.db_id, self.role, content_to_save)

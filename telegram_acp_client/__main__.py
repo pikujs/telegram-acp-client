@@ -73,6 +73,7 @@ def run_bot(config_file: str = None, bot_name: str = None):
         list_sessions_command,
         restart_command,
         stop_command,
+        shutdown_command,
         history_inject_command,
     )
     from telegram_acp_client.bot.navigation import ls_command, cd_command
@@ -100,6 +101,7 @@ def run_bot(config_file: str = None, bot_name: str = None):
         ("sessions", list_sessions_command),
         ("restart", restart_command),
         ("stop", stop_command),
+        ("shutdown", shutdown_command),
         ("historyInject", history_inject_command),
         ("ls", ls_command),
         ("cd", cd_command),
