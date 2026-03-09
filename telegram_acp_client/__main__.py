@@ -28,12 +28,6 @@ def get_default_data_root():
     return Path(user_data_dir("telegram-acp-client"))
 
 
-def check_linux_only():
-    if sys.platform != "linux":
-        print("❌ Error: systemd service management is only supported on Linux.")
-        sys.exit(1)
-
-
 async def post_init(application):
     from telegram_acp_client.services.db_service import db_service
 
@@ -51,9 +45,14 @@ def run_bot(config_file: str = None, bot_name: str = None):
 
     # 2. Setup Logging
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+    log_file = settings.DATA_DIR / f"{settings.bot_name}.log"
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=log_level,
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, encoding='utf-8')
+        ]
     )
     logging.getLogger().setLevel(log_level)
     
@@ -154,47 +153,21 @@ def cmd_new(args):
     print(f"\n✅ Created config at {config_file}")
     print(f"✅ Data will be stored at {data_file}")
 
-    if sys.platform != "linux":
-        print("\nℹ️ Systemd service skip: You are on a non-Linux platform.")
-        print(f"   To run your bot manually: telegram-acp-client run {name}")
-        return
-
-    if args.no_start:
-        print(
-            f"\n📝 Service start skipped. To start manually: telegram-acp-client start {name}"
-        )
-        return
-
-    print(f"\n🚀 Setting up systemd user service for '{name}'...")
     try:
-        # 1. Reload daemon
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        # 2. Enable service
-        subprocess.run(
-            [
-                "systemctl",
-                "--user",
-                "enable",
-                f"telegram-acp-client@{name}.service",
-            ],
-            check=True,
-        )
-        # 3. Start service
-        subprocess.run(
-            [
-                "systemctl",
-                "--user",
-                "start",
-                f"telegram-acp-client@{name}.service",
-            ],
-            check=True,
-        )
-        print(f"✅ Service 'telegram-acp-client@{name}' is now running.")
+        from telegram_acp_client.services.os_service_manager import get_manager
+        manager = get_manager(name)
+        print(f"\n🚀 Setting up background service for '{name}'...")
+        manager.install()
+
+        if args.no_start:
+            print(f"\n📝 Service start skipped. To start manually: telegram-acp-client start {name}")
+            return
+
+        manager.enable()
+        manager.start()
+        print(f"✅ Service '{name}' is now running.")
     except Exception as e:
         print(f"⚠️ Warning: Could not automatically start service: {e}")
-        print(
-            f"Please ensure the template 'telegram-acp-client@.service' is installed in ~/.config/systemd/user/ or /usr/lib/systemd/user/"
-        )
 
 
 def cmd_run(args):
@@ -205,12 +178,14 @@ def cmd_run(args):
 
 
 def manage_service(bot_name, action):
-    check_linux_only()
     name = bot_name or "default"
-    service_name = f"telegram-acp-client@{name}.service"
-    cmd = ["systemctl", "--user", action, service_name]
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd)
+    try:
+        from telegram_acp_client.services.os_service_manager import get_manager
+        manager = get_manager(name)
+        func = getattr(manager, action)
+        func()
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 
 def main():
@@ -251,11 +226,13 @@ def main():
     elif args.command in ["status", "restart", "stop", "enable", "disable"]:
         manage_service(args.name, args.command)
     elif args.command == "logs":
-        check_linux_only()
-        cmd = ["journalctl", "--user", "-u", f"telegram-acp-client@{args.name}.service"]
-        if args.follow:
-            cmd.append("-f")
-        subprocess.run(cmd)
+        name = args.name or "default"
+        try:
+            from telegram_acp_client.services.os_service_manager import get_manager
+            manager = get_manager(name)
+            manager.logs(follow=args.follow)
+        except Exception as e:
+            print(f"❌ Error: {e}")
     else:
         parser.print_help()
 

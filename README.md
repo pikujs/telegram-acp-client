@@ -83,8 +83,8 @@ telegram-acp-client run my-bot
 telegram-acp-client run --config ~/path/to/bot-config.json
 ```
 
-### 3. Service Management (Linux/systemd only)
-On Linux, you can manage your bots as background services (**no `sudo` required**):
+### 3. Service Management (Cross-Platform)
+You can manage your bots as background services automatically using native tools on Linux (`systemd`), macOS (`launchd`), and Windows (`schtasks`):
 ```bash
 telegram-acp-client status my-bot
 telegram-acp-client start my-bot
@@ -114,7 +114,9 @@ Located in each bot's config directory:
         - `process.py`: Shell & background task management.
         - `navigation.py`: Local FS navigation.
         - `common.py`: Help & Start commands.
-        - `utils.py`: Shared utilities (auth, diffs, splitting).
+        - `auth.py`: Strict whitelist-based security.
+        - `formatting.py`: Functions for diffs and markdown escaping.
+        - `messaging.py`: Core Telegram API wrappers with exponential backoff.
     - `services/`: Core application services.
         - `acp_service.py`: Protocol implementation.
         - `db_service.py`: Asynchronous SQLite persistence.

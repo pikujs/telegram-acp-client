@@ -13,7 +13,7 @@ The application is built using an asynchronous, service-oriented architecture de
     - `agent.py`: Handles the core conversation and permission delegation.
     - `session.py`: Manages workspace lifecycles.
     - `process.py`: Handles system-level background jobs.
-    - `utils.py`: Shared helpers like auth decorators and message splitters.
+    - `auth.py`, `formatting.py`, `messaging.py`: Modular helpers for security, pure formatting, and resilient API wrappers.
 
 ## 📜 CLI Commands Reference
 
@@ -28,11 +28,10 @@ The application is built using an asynchronous, service-oriented architecture de
 - This is the entry point used by the systemd service.
 
 ### `status/restart/stop/enable/disable/start <name>`
-- Convenience wrappers around `systemctl --user` (no `sudo` required).
-- Assumes the service template `telegram-acp-client@.service` is installed.
+- Cross-platform wrappers around the native OS service manager (`systemctl` on Linux, `launchctl` on macOS, `schtasks` on Windows).
 
 ### `logs <name> [-f]`
-- Wrapper around `journalctl --user -u telegram-acp-client@{name}.service`.
+- Tails the bot's log file automatically using native commands (`journalctl`, `tail`, or `powershell` depending on the platform).
 
 ## 📜 Development Rules & Mandates
 
@@ -43,7 +42,7 @@ The application is built using an asynchronous, service-oriented architecture de
 
 ### 2. Authorization
 - **Mandate:** All handlers that interact with the system or agent must be protected.
-- **Standard:** Use the `@authorized_only` decorator from `bot.utils`.
+- **Standard:** Use the `@authorized_only` decorator from `bot.auth`.
 
 ### 3. Tool Permissions
 - **Mandate:** Permission prompts must be informative and persistent.

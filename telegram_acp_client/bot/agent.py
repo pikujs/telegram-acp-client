@@ -6,8 +6,10 @@ from telegram.ext import ContextTypes, InvalidCallbackData
 from acp import text_block
 from acp.schema import PermissionOption, FileEditToolCallContent
 
-from telegram_acp_client.bot.utils import (
-    authorized_only, send_safe_message, typing_action, format_diff, escape_markdown, is_approval_option, send_split_diff
+from telegram_acp_client.bot.auth import authorized_only
+from telegram_acp_client.bot.formatting import format_diff, escape_markdown, is_approval_option
+from telegram_acp_client.bot.messaging import (
+    send_safe_message, typing_action, send_split_diff, safe_reply, safe_edit, safe_answer
 )
 from telegram_acp_client.services.db_service import db_service
 from telegram_acp_client.services.acp_service import acp_service, TelegramGeminiClient
@@ -69,9 +71,9 @@ async def start_agent_service(update, context, db_id, path):
 
         logger.info(f"SENDING PERMISSION PROMPT for {tc_id}")
         try:
-            await context.bot.send_message(chat_id, f"🔐 *Permission Requested:*\n{safe_title}", reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
+            await send_safe_message(context, chat_id, f"🔐 *Permission Requested:*\n{safe_title}", reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
         except Exception:
-            await context.bot.send_message(chat_id, f"Permission Requested:\n{tool_call.title}", reply_markup=InlineKeyboardMarkup(btns))
+            await send_safe_message(context, chat_id, f"Permission Requested:\n{tool_call.title}", reply_markup=InlineKeyboardMarkup(btns))
 
         try:
             result = await asyncio.wait_for(future, timeout=3600)
@@ -79,7 +81,7 @@ async def start_agent_service(update, context, db_id, path):
             return result
         except asyncio.TimeoutError:
             if not future.done(): future.set_result(None)
-            await context.bot.send_message(chat_id, f"⏳ *Timed out:* Permission for `{safe_title}` was automatically denied.")
+            await send_safe_message(context, chat_id, f"⏳ *Timed out:* Permission for `{safe_title}` was automatically denied.")
             return None
         finally:
             session.permission_registry.pop(tc_idx_str, None)
@@ -109,7 +111,7 @@ async def start_agent_service(update, context, db_id, path):
         full_cmd = command if not args else f"{command} " + " ".join(args)
         session_info = await db_service.get_session(db_id)
         current_cwd = cwd_override or terminal_service.get_cwd(chat_id, session_info[1])
-        async def send_log(log_msg): await context.bot.send_message(chat_id=chat_id, text=log_msg, parse_mode='Markdown')
+        async def send_log(log_msg): await send_safe_message(context, chat_id, log_msg, parse_mode='Markdown')
         return await terminal_service.run_shell(chat_id, full_cmd, current_cwd, send_log, session_id=db_id)
 
     client = TelegramGeminiClient(on_text, on_permission, on_tool_start, on_thought, on_system_notification, on_terminal_request)
@@ -132,22 +134,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(chat_id)
     if sid: context.user_data["current_session_id"] = sid
     if not sid:
-        await update.message.reply_text("Select a session first via /sessions or create /new.")
+        await safe_reply(update, "Select a session first via /sessions or create /new.")
         return
 
     if sid not in acp_service.active_processes:
         session_info = await db_service.get_session(sid)
         if session_info:
-            await update.message.reply_text("🔄 Bot restarted. Reconnecting to agent...")
+            await safe_reply(update, "🔄 Bot restarted. Reconnecting to agent...")
             await start_agent_service(update, context, sid, session_info[1])
         else:
-            await update.message.reply_text("Session not found.")
+            await safe_reply(update, "Session not found.")
             return
 
     await db_service.save_message(sid, "user", text)
     session = acp_service.active_processes[sid]
     if session.is_busy:
-        await update.message.reply_text("⏳ *Agent is working*, please wait...", parse_mode='Markdown')
+        await safe_reply(update, "⏳ *Agent is working*, please wait...", parse_mode='Markdown')
         return
 
     async def run_prompt():
@@ -157,7 +159,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await session.conn.prompt(session_id=session.acp_session.session_id, prompt=[text_block(text)])
         except Exception as e:
             logger.exception("Error during agent prompt")
-            await context.bot.send_message(chat_id=chat_id, text=f"❌ Agent Error: {e}")
+            await send_safe_message(context, chat_id, f"❌ Agent Error: {e}")
         finally:
             if session.streamer:
                 await session.streamer.close()
@@ -168,9 +170,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query, data = update.callback_query, update.callback_query.data
     if data is InvalidCallbackData:
-        await query.answer("This button is no longer valid.", show_alert=True)
+        await safe_answer(query, "This button is no longer valid.", show_alert=True)
         return
-    await query.answer()
+    await safe_answer(query, )
     chat_id = update.effective_chat.id if update.effective_chat else 0
 
     if isinstance(data, tuple):
@@ -182,7 +184,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if sid not in acp_service.active_processes:
                 session_info = await db_service.get_session(sid)
                 if session_info: await start_agent_service(update, context, sid, session_info[1])
-            await query.edit_message_text(f"Switched to Session ID: {sid}")
+            await safe_edit(query, f"Switched to Session ID: {sid}")
         elif action == "perm":
             _, target_db_id, tc_idx, opt_id = data
             session = acp_service.active_processes.get(target_db_id)
@@ -197,12 +199,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if not future.done():
                         from acp.schema import PermissionOption
                         future.set_result(PermissionOption(option_id=opt_id, name="Allowed", kind="allow_once"))
-                    await query.edit_message_text(f"{original_text}\n\n✅ *Granted*", parse_mode='Markdown')
+                    await safe_edit(query, f"{original_text}\n\n✅ *Granted*", parse_mode='Markdown')
                 else:
                     if not future.done(): future.set_result(None)
                     try:
                         await session.conn.cancel(session_id=session.acp_session.session_id)
-                        await query.edit_message_text(f"{original_text}\n\n❌ *Task Stopped & Permission Denied*", parse_mode='Markdown')
+                        await safe_edit(query, f"{original_text}\n\n❌ *Task Stopped & Permission Denied*", parse_mode='Markdown')
                     except Exception: 
-                        await query.edit_message_text(f"{original_text}\n\n❌ *Permission Denied*", parse_mode='Markdown')
-            else: await query.edit_message_text("⚠️ Request expired.")
+                        await safe_edit(query, f"{original_text}\n\n❌ *Permission Denied*", parse_mode='Markdown')
+            else: await safe_edit(query, "⚠️ Request expired.")

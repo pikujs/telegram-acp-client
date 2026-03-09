@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram_acp_client.bot.utils import authorized_only
+from telegram_acp_client.bot.auth import authorized_only
+from telegram_acp_client.bot.messaging import safe_reply
 
 HELP_TEXT = """👋 *Welcome to Telegram ACP Client!*
 
@@ -25,8 +26,8 @@ Send any other message to talk to the AI Agent!"""
 
 @authorized_only
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+    await safe_reply(update, HELP_TEXT, parse_mode="Markdown")
 
 @authorized_only
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+    await safe_reply(update, HELP_TEXT, parse_mode="Markdown")
