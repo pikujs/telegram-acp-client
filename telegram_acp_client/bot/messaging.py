@@ -78,7 +78,7 @@ async def safe_answer(query, text: str = None, **kwargs):
         return await safe_api_call(query.answer, text=text, **kwargs)
     return await safe_api_call(query.answer, **kwargs)
 
-async def send_safe_message(context, chat_id, text, parse_mode="Markdown", max_retries=5):
+async def send_safe_message(context, chat_id, text, parse_mode="Markdown", max_retries=5, **kwargs):
     """Tries to send a message with Markdown, falls back to plain text if parsing fails. Includes exponential backoff for network issues."""
     log_text = (text[:100] + "...") if len(text) > 100 else text
     logger.info(f"BOT SENDING MESSAGE to {chat_id}: {log_text}")
@@ -89,12 +89,14 @@ async def send_safe_message(context, chat_id, text, parse_mode="Markdown", max_r
     while attempt <= max_retries:
         try:
             return await context.bot.send_message(
-                chat_id=chat_id, text=text, parse_mode=parse_mode
+                chat_id=chat_id, text=text, parse_mode=parse_mode, **kwargs
             )
         except Exception as e:
             if "Can't parse entities" in str(e):
                 logger.warning(f"Markdown parsing failed, falling back to plain text: {e}")
-                return await context.bot.send_message(chat_id=chat_id, text=text)
+                # Remove parse_mode if it failed
+                temp_kwargs = kwargs.copy()
+                return await context.bot.send_message(chat_id=chat_id, text=text, **temp_kwargs)
             
             if isinstance(e, RetryAfter):
                 wait_time = e.retry_after

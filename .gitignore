@@ -13,6 +13,9 @@ wheels/
 # Database file
 database.db
 
+# logs
+*.log
+
 # Agent logs
 .agent-shell
 agent-shell

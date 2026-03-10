@@ -11,7 +11,7 @@ from platformdirs import user_config_dir, user_data_dir
 class Settings:
     TELEGRAM_BOT_TOKEN: str = ""
     ALLOWED_USERS: List[str] = field(default_factory=list)
-    AGENT_COMMAND: str = "gemini-cli"
+    AGENT_COMMAND: str = "gemini-cli --experimental-acp"
     LOG_LEVEL: str = "INFO"
     CONFIG_DIR: Path = Path.cwd()
     DATA_DIR: Path = Path.cwd()
@@ -27,7 +27,7 @@ class Settings:
             target_config_file = Path(config_file).expanduser().resolve()
             # Derive bot name from filename if not explicitly provided
             self.bot_name = bot_name or target_config_file.stem
-            
+
             if bot_name is None:
                 # If config file is provided but bot_name was not explicitly passed,
                 # store the database locally next to the config file.
