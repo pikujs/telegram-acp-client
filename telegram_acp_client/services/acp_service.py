@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Callable, Any, Union
 from pathlib import Path
 
 from acp import PROTOCOL_VERSION, Client, connect_to_agent, text_block
+from acp.exceptions import RequestError
 from acp.schema import (
     AgentMessageChunk,
     AgentPlanUpdate,
@@ -146,17 +147,23 @@ class TelegramGeminiClient(Client):
             return WriteTextFileResponse()
         except Exception as e:
             logger.exception(f"Error in write_text_file: {e}")
-            raise RequestError.internal_error(str(e))
+            raise RequestError.internal_error({"error": str(e)})
 
     async def read_text_file(self, path, session_id, **kwargs) -> ReadTextFileResponse:
         logger.info(f"AGENT READING FILE: {path}")
         try:
-            content = Path(path).read_text()
+            p = Path(path)
+            if not p.exists():
+                logger.warning(f"File not found: {path}")
+                raise RequestError.resource_not_found(path)
+            content = p.read_text()
             await self._notify(f"📖 *File Read:* `{path}`")
             return ReadTextFileResponse(content=content)
+        except RequestError:
+            raise
         except Exception as e:
             logger.exception(f"Error in read_text_file: {e}")
-            raise RequestError.internal_error(str(e))
+            raise RequestError.internal_error({"error": str(e)})
 
     # --- Terminal Methods Delegated to TerminalService ---
 

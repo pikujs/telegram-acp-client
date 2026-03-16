@@ -10,6 +10,10 @@ wheels/
 # Virtual environments
 .venv
 
+
+# Bot configurations
+bots/
+
 # Database file
 database.db
 

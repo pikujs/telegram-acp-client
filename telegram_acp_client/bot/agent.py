@@ -66,14 +66,22 @@ async def start_agent_service(update, context, db_id, path):
             btns.append([InlineKeyboardButton(f"{emoji} {opt.name}", callback_data=("perm", db_id, tc_idx_str, opt.option_id))])
 
         safe_title = escape_markdown(tool_call.title)
+        
+        # If the title itself is massive (e.g. a huge shell command), truncate it for the prompt
+        prompt_title = safe_title
+        if len(prompt_title) > 3000:
+            prompt_title = prompt_title[:3000] + "... [truncated]"
+            # Optionally send the full title as a separate message first
+            await send_safe_message(context, chat_id, f"📋 *Full Tool Request Details:*\n`{safe_title}`")
+
         if diff_text:
             await send_split_diff(context, chat_id, diff_text)
 
         logger.info(f"SENDING PERMISSION PROMPT for {tc_id}")
         try:
-            await send_safe_message(context, chat_id, f"🔐 *Permission Requested:*\n{safe_title}", reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
+            await send_safe_message(context, chat_id, f"🔐 *Permission Requested:*\n{prompt_title}", reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
         except Exception:
-            await send_safe_message(context, chat_id, f"Permission Requested:\n{tool_call.title}", reply_markup=InlineKeyboardMarkup(btns))
+            await send_safe_message(context, chat_id, f"Permission Requested:\n{tool_call.title[:3000]}", reply_markup=InlineKeyboardMarkup(btns))
 
         try:
             result = await asyncio.wait_for(future, timeout=3600)
@@ -192,8 +200,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reg = session.permission_registry.pop(tc_idx)
                 future = reg["future"]
                 
-                # Preserving original details
+                # Preserving original details, ensuring they don't exceed Telegram limit on edit
                 original_text = query.message.text if query.message else "Permission Prompt"
+                if len(original_text) > 3500:
+                    original_text = original_text[:3500] + "... [truncated]"
                 
                 if is_approval_option(opt_id):
                     if not future.done():

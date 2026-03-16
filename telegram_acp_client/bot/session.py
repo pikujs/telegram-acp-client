@@ -125,3 +125,52 @@ async def shutdown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         killed_count = await terminal_service.kill_all_in_session(sid)
         
     await safe_reply(update, f"✅ Session `{name}` shutdown complete. (Agent stopped, {killed_count} processes killed)", parse_mode='Markdown')
+
+@authorized_only
+async def delete_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
+        session_name = context.args[0]
+        sid = await db_service.get_session_by_name(update.effective_chat.id, session_name)
+        if not sid:
+            await safe_reply(update, f"No session found with name `{session_name}`.", parse_mode="Markdown")
+            return
+    else:
+        sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
+        if not sid:
+            await safe_reply(update, "No active session to delete. You can specify a name: `/delete <name>`.", parse_mode="Markdown")
+            return
+        
+    session_info = await db_service.get_session(sid)
+    if not session_info:
+        await safe_reply(update, "Session data not found.")
+        return
+        
+    name, path = session_info
+    await safe_reply(update, f"🗑️ Deleting session `{name}` and exporting logs...", parse_mode='Markdown')
+    
+    async with typing_action(context, update.effective_chat.id):
+        # 1. Stop agent
+        await acp_service.stop_session(sid)
+        
+        # 2. Stop all related background processes
+        from telegram_acp_client.services.terminal_service import terminal_service
+        await terminal_service.kill_all_in_session(sid)
+        
+        # 3. Export and delete from DB
+        log_filepath = await db_service.export_and_delete_session(sid)
+        
+    if log_filepath and os.path.exists(log_filepath):
+        try:
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=open(log_filepath, "rb"),
+                caption=f"✅ Session `{name}` deleted. Logs exported."
+            )
+        except Exception as e:
+            await safe_reply(update, f"✅ Session deleted, but failed to send log file: {e}")
+    else:
+        await safe_reply(update, f"✅ Session `{name}` deleted. (No logs exported)")
+        
+    # Clear active session from context
+    if "current_session_id" in context.user_data and context.user_data["current_session_id"] == sid:
+        del context.user_data["current_session_id"]

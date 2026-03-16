@@ -11,6 +11,7 @@ HELP_TEXT = """👋 *Welcome to Telegram ACP Client!*
 /restart - Restart current agent
 /stop - Stop current agent task
 /shutdown - Shut down agent and all processes
+/delete [name] - Delete session and export logs
 /historyInject <n> - Inject last n messages
 
 *Local Navigation:*

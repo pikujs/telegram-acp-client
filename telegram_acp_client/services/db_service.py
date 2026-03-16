@@ -73,6 +73,12 @@ class DBService:
             async with db.execute("SELECT name, path FROM sessions WHERE id = ?", (sid,)) as cursor:
                 return await cursor.fetchone()
 
+    async def get_session_by_name(self, chat_id: int, name: str) -> Optional[int]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT id FROM sessions WHERE chat_id = ? AND name = ?", (chat_id, name)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
     async def save_message(self, session_id, role, content):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -90,6 +96,46 @@ class DBService:
                 rows = await cursor.fetchall()
                 # Return in chronological order
                 return rows[::-1]
+
+    async def export_and_delete_session(self, session_id: int) -> Optional[str]:
+        async with aiosqlite.connect(self.db_path) as db:
+            # 1. Get session info
+            async with db.execute("SELECT name, path FROM sessions WHERE id = ?", (session_id,)) as cursor:
+                session_info = await cursor.fetchone()
+                if not session_info:
+                    return None
+            
+            # 2. Get all messages for export
+            async with db.execute(
+                "SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY id ASC",
+                (session_id,)
+            ) as cursor:
+                messages = await cursor.fetchall()
+            
+            # 3. Export to log file
+            log_filename = f"session_{session_id}_{session_info[0]}_export.log"
+            log_filepath = settings.DATA_DIR / log_filename
+            with open(log_filepath, "w", encoding="utf-8") as f:
+                f.write(f"Session ID: {session_id}\nName: {session_info[0]}\nPath: {session_info[1]}\n")
+                f.write("=" * 40 + "\n\n")
+                for role, content, timestamp in messages:
+                    f.write(f"[{timestamp}] {role.upper()}:\n{content}\n")
+                    f.write("-" * 40 + "\n")
+            
+            # 4. Delete messages
+            await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            
+            # 5. Delete session
+            await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            
+            # 6. Unset last_session_id if it matches
+            await db.execute(
+                "UPDATE chat_state SET last_session_id = NULL WHERE last_session_id = ?", 
+                (session_id,)
+            )
+            
+            await db.commit()
+            return str(log_filepath)
 
 
 db_service = DBService()

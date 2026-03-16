@@ -60,7 +60,12 @@ The application is built using an asynchronous, service-oriented architecture de
 - **Rule:** Use `escape_markdown` for any variable text. Ensure code blocks are closed/opened correctly when splitting long messages.
 
 ### 6. Security Checks
-- **Mandate:** Before committing any changes, the developer (or agent) must perform a manual audit of the staged diffs.
+- **Mandate:** Before committing any changes, the developer (or agent) must perform a manual audit of the staged diffs and obtain user confirmation.
+- **Workflow:**
+    1. **Stage:** `git add <files>`
+    2. **Audit:** `git diff --staged` (Look for tokens, keys, local paths, or regressions).
+    3. **Confirm:** Ask the user for confirmation to proceed with the commit and push.
+    4. **Commit/Push:** Execute only after user approval.
 - **Checklist:**
     - No Telegram Bot Tokens (e.g., `123456:ABC...`).
     - No personal user names or absolute local paths (e.g., `/home/username/...`).
@@ -87,8 +92,11 @@ The application is built using an asynchronous, service-oriented architecture de
 
 ## 🛠 Local Development Setup
 
-### 1. Development Systemd Service
-For local development, use `telegram-acp-dev@.service`. This service uses `uv run` to execute the code directly from your project directory, ensuring that any changes you make are reflected after a service restart.
+### 1. Development Systemd Service (`telegram-acp-dev@.service`)
+This repository includes a systemd template file (`telegram-acp-dev@.service`) designed specifically for local development.
+
+**How it Works:**
+Instead of relying on a globally installed binary, this service uses `uv run` to execute the CLI directly from the cloned repository's source code. This means any modifications you make to the Python files are immediately active the next time you restart the service, without needing to reinstall the package. The service is configured to look for a configuration file named `{botname}.json` in the repository's root directory.
 
 **Setup:**
 1. Symlink the service file to your systemd user directory:
@@ -101,11 +109,36 @@ For local development, use `telegram-acp-dev@.service`. This service uses `uv ru
    systemctl --user daemon-reload
    ```
 
-**Usage:**
-- **Start:** `systemctl --user start telegram-acp-dev@{botname}`
-- **Stop:** `systemctl --user stop telegram-acp-dev@{botname}`
-- **Restart:** `systemctl --user restart telegram-acp-dev@{botname}`
-- **Logs:** `journalctl --user -u telegram-acp-dev@{botname} -f`
+**Usage & Workflows:**
+
+#### Managing the Dev Service:
+- **Start:** `systemctl --user start telegram-acp-dev@<botname>`
+- **Stop:** `systemctl --user stop telegram-acp-dev@<botname>`
+- **Restart:** `systemctl --user restart telegram-acp-dev@<botname>` (Run this after saving code changes!)
+- **Logs:** `journalctl --user -u telegram-acp-dev@<botname> -f`
+
+#### Workflow: Adding a New Dev Bot (Agent / Automated Workflow)
+Since interactive commands (like `uv run telegram-acp-client new`) hang when run by an agent, the correct way for an agent to provision a new bot for local development is to create the configuration file manually:
+
+1. **Create the config file** directly in the repository root as `<botname>.json` (e.g., `my-dev-bot.json`):
+   ```json
+   {
+       "telegram_token": "YOUR_BOT_TOKEN",
+       "allowed_users": ["your_username"],
+       "agent_command": "gemini-cli --experimental-acp",
+       "log_level": "INFO"
+   }
+   ```
+2. **Start the dev service**:
+   ```bash
+   systemctl --user start telegram-acp-dev@<botname>
+   ```
+
+#### Workflow: Adding a New Dev Bot (Human / Interactive)
+If a human is running the commands directly in the terminal, they can use the interactive CLI and pass `--no-start` to avoid interfering with the dev service:
+```bash
+uv run telegram-acp-client new <botname> --no-start
+```
 
 ## 🛠 Troubleshooting & How-Tos
 

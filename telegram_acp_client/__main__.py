@@ -16,6 +16,7 @@ from telegram.ext import (
 from platformdirs import user_config_dir, user_data_dir
 
 from telegram_acp_client.config import settings
+from telegram_acp_client.services.service_manager import get_service_manager
 
 
 def get_default_config_root():
@@ -73,6 +74,7 @@ def run_bot(config_file: str = None, bot_name: str = None):
         restart_command,
         stop_command,
         shutdown_command,
+        delete_session_command,
         history_inject_command,
     )
     from telegram_acp_client.bot.navigation import ls_command, cd_command
@@ -101,6 +103,7 @@ def run_bot(config_file: str = None, bot_name: str = None):
         ("restart", restart_command),
         ("stop", stop_command),
         ("shutdown", shutdown_command),
+        ("delete", delete_session_command),
         ("historyInject", history_inject_command),
         ("ls", ls_command),
         ("cd", cd_command),

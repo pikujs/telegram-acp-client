@@ -57,6 +57,7 @@ async def safe_reply(update: Update, text: str, **kwargs):
     try:
         return await safe_api_call(update.message.reply_text, text, **kwargs)
     except Exception as e:
+        logger.error(f"safe_reply failed: {e} | Text length: {len(text)}")
         if "Can't parse entities" in str(e):
             kwargs.pop('parse_mode', None)
             return await safe_api_call(update.message.reply_text, text, **kwargs)
@@ -68,6 +69,10 @@ async def safe_edit(query, text: str, **kwargs):
     try:
         return await safe_api_call(query.edit_message_text, text, **kwargs)
     except Exception as e:
+        # Ignore "Message is not modified" errors as they are common and harmless
+        if "Message is not modified" in str(e):
+            return
+        logger.error(f"safe_edit failed: {e} | Text length: {len(text)}")
         if "Can't parse entities" in str(e):
             kwargs.pop('parse_mode', None)
             return await safe_api_call(query.edit_message_text, text, **kwargs)
