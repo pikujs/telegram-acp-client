@@ -1,14 +1,15 @@
-import re
 import difflib
+import re
+
 
 def format_diff(old_text: str, new_text: str, path: str) -> str:
     """Generates a unified diff string."""
     old_lines = (old_text or "").splitlines()
     new_lines = (new_text or "").splitlines()
-    
+
     diff = difflib.unified_diff(
-        old_lines, new_lines, 
-        fromfile=f"a/{path}", 
+        old_lines, new_lines,
+        fromfile=f"a/{path}",
         tofile=f"b/{path}",
         lineterm=""
     )
@@ -17,7 +18,8 @@ def format_diff(old_text: str, new_text: str, path: str) -> str:
 
 def escape_markdown(text: str) -> str:
     """Helper to escape special characters for Telegram Markdown (v1)."""
-    return re.sub(r"([_*`\[])", r"\\\1", text)
+    if not text: return ""
+    return re.sub(r"([_*`\[\]()])", r"\\\1", text)
 
 def is_approval_option(text: str) -> bool:
     """Checks if a button text or option ID represents an approval."""

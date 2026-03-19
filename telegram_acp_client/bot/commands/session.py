@@ -1,14 +1,23 @@
-import os
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from telegram_acp_client.bot.auth import authorized_only
-from telegram_acp_client.bot.messaging import typing_action, safe_reply, send_safe_message
-from telegram_acp_client.bot.agent import start_agent_service
-from telegram_acp_client.services.db_service import db_service
-from telegram_acp_client.services.acp_service import acp_service
-from acp import text_block
+import os
 
+from acp import text_block
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
+
+from telegram_acp_client.bot.agent import start_agent_service
+from telegram_acp_client.bot.auth import authorized_only
+from telegram_acp_client.bot.messaging import (
+    safe_reply,
+    send_safe_message,
+    typing_action,
+)
+from telegram_acp_client.services.acp_service import acp_service
+from telegram_acp_client.services.db_service import db_service
+from telegram_acp_client.bot.registry import register_command
+
+
+@register_command("new", "Create a new agent session", usage="<name> <absolute_path>", category="Session Management")
 @authorized_only
 async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -21,6 +30,7 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await db_service.set_last_session(update.effective_chat.id, db_id)
         await start_agent_service(update, context, db_id, path)
 
+@register_command("sessions", "List active agent sessions", category="Session Management")
 @authorized_only
 async def list_sessions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sessions = await db_service.get_sessions(update.effective_chat.id)
@@ -33,6 +43,7 @@ async def list_sessions_command(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard.append([InlineKeyboardButton(f"{status} {name}", callback_data=("switch", sid))])
     await safe_reply(update, "Workspaces:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+@register_command("restart", "Restart the current session", category="Session Management")
 @authorized_only
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
@@ -52,6 +63,7 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             acp_service.active_processes[sid].is_busy = False
     await safe_reply(update, f"✅ Agent for `{name}` has been restarted.")
 
+@register_command("stop", "Stop the current agent session", category="Session Management")
 @authorized_only
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
@@ -68,6 +80,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await safe_reply(update, f"❌ Failed to stop task: {e}")
 
+@register_command("historyinject", "Inject history into current session", usage="<n>", category="Session Management")
 @authorized_only
 async def history_inject_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
@@ -101,31 +114,33 @@ async def history_inject_command(update: Update, context: ContextTypes.DEFAULT_T
             session.is_busy = False
     asyncio.create_task(run_injection())
 
+@register_command("shutdown", "Shutdown the agent server", category="Session Management")
 @authorized_only
 async def shutdown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
     if not sid:
         await safe_reply(update, "No active session selected to shutdown.")
         return
-        
+
     session_info = await db_service.get_session(sid)
     if not session_info:
         await safe_reply(update, "Session data not found.")
         return
-        
+
     name, path = session_info
     await safe_reply(update, f"🛑 Shutting down agent and background processes for `{name}`...", parse_mode='Markdown')
-    
+
     async with typing_action(context, update.effective_chat.id):
         # 1. Stop agent
         await acp_service.stop_session(sid)
-        
+
         # 2. Stop all related background processes
         from telegram_acp_client.services.terminal_service import terminal_service
         killed_count = await terminal_service.kill_all_in_session(sid)
-        
+
     await safe_reply(update, f"✅ Session `{name}` shutdown complete. (Agent stopped, {killed_count} processes killed)", parse_mode='Markdown')
 
+@register_command("delete", "Delete an agent session", usage="[name]", category="Session Management")
 @authorized_only
 async def delete_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
@@ -139,26 +154,26 @@ async def delete_session_command(update: Update, context: ContextTypes.DEFAULT_T
         if not sid:
             await safe_reply(update, "No active session to delete. You can specify a name: `/delete <name>`.", parse_mode="Markdown")
             return
-        
+
     session_info = await db_service.get_session(sid)
     if not session_info:
         await safe_reply(update, "Session data not found.")
         return
-        
+
     name, path = session_info
     await safe_reply(update, f"🗑️ Deleting session `{name}` and exporting logs...", parse_mode='Markdown')
-    
+
     async with typing_action(context, update.effective_chat.id):
         # 1. Stop agent
         await acp_service.stop_session(sid)
-        
+
         # 2. Stop all related background processes
         from telegram_acp_client.services.terminal_service import terminal_service
         await terminal_service.kill_all_in_session(sid)
-        
+
         # 3. Export and delete from DB
         log_filepath = await db_service.export_and_delete_session(sid)
-        
+
     if log_filepath and os.path.exists(log_filepath):
         try:
             await context.bot.send_document(
@@ -170,7 +185,7 @@ async def delete_session_command(update: Update, context: ContextTypes.DEFAULT_T
             await safe_reply(update, f"✅ Session deleted, but failed to send log file: {e}")
     else:
         await safe_reply(update, f"✅ Session `{name}` deleted. (No logs exported)")
-        
+
     # Clear active session from context
     if "current_session_id" in context.user_data and context.user_data["current_session_id"] == sid:
         del context.user_data["current_session_id"]

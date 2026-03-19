@@ -1,34 +1,32 @@
-import asyncio
+import logging
 import platform
 import subprocess
-import logging
 from abc import ABC, abstractmethod
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class ServiceManager(ABC):
     @abstractmethod
     async def start(self, name: str) -> bool: pass
-    
+
     @abstractmethod
     async def stop(self, name: str) -> bool: pass
-    
+
     @abstractmethod
     async def restart(self, name: str) -> bool: pass
-    
+
     @abstractmethod
     async def status(self, name: str) -> str: pass
-    
+
     @abstractmethod
     async def enable(self, name: str) -> bool: pass
-    
+
     @abstractmethod
     async def disable(self, name: str) -> bool: pass
 
 class ShellServiceManager(ServiceManager):
     """Implementation using system-level CLI commands (systemctl, launchctl, net/sc)."""
-    
+
     def _run_cmd(self, cmd: list[str]) -> bool:
         try:
             subprocess.run(cmd, check=True, capture_output=True)
@@ -72,7 +70,7 @@ class ShellServiceManager(ServiceManager):
 
 class NativeServiceManager(ServiceManager):
     """Implementation using platform-specific Python libraries (sdbus, pywin32, etc.)."""
-    
+
     def __init__(self):
         self.system = platform.system()
         self._systemd = None

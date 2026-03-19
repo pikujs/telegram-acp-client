@@ -1,16 +1,14 @@
-import os
 import json
-import logging
 from dataclasses import dataclass, field
-from typing import List
 from pathlib import Path
+
 from platformdirs import user_config_dir, user_data_dir
 
 
 @dataclass
 class Settings:
     TELEGRAM_BOT_TOKEN: str = ""
-    ALLOWED_USERS: List[str] = field(default_factory=list)
+    ALLOWED_USERS: list[str] = field(default_factory=list)
     AGENT_COMMAND: str = "gemini-cli --experimental-acp"
     LOG_LEVEL: str = "INFO"
     SERVICE_MANAGER_TYPE: str = "shell"
@@ -18,7 +16,7 @@ class Settings:
     DATA_DIR: Path = Path.cwd()
     DATABASE_PATH: str = "database.db"
 
-    def load(self, config_file: str = None, bot_name: str = None):
+    def load(self, config_file: str | None = None, bot_name: str | None = None):
         # 1. Determine base directories
         default_config_root = Path(user_config_dir("telegram-acp-client"))
         default_data_root = Path(user_data_dir("telegram-acp-client"))
@@ -53,7 +51,9 @@ class Settings:
                 data = json.loads(target_config_file.read_text())
                 self.TELEGRAM_BOT_TOKEN = data.get("telegram_token", "")
                 self.ALLOWED_USERS = data.get("allowed_users", [])
-                self.AGENT_COMMAND = data.get("agent_command", "gemini-cli --experimental-acp")
+                self.AGENT_COMMAND = data.get(
+                    "agent_command", "gemini-cli --experimental-acp"
+                )
                 self.LOG_LEVEL = data.get("log_level", "INFO")
                 self.SERVICE_MANAGER_TYPE = data.get("service_manager_type", "shell")
             except Exception as e:

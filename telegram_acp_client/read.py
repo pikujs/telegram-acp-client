@@ -1,7 +1,6 @@
+import os
 import sqlite3
 import sys
-import os
-from datetime import datetime
 
 
 def read_session(session_id: int):

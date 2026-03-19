@@ -1,19 +1,19 @@
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from platformdirs import user_data_dir
+
 
 class OSServiceManager:
     def __init__(self, bot_name):
         from telegram_acp_client.config import settings
-        
+
         self.bot_name = bot_name or "default"
         # Load settings specifically to resolve the correct data dir if needed
         # but avoid overriding already loaded configuration paths if bot_name matches
         if not hasattr(settings, 'bot_name') or settings.bot_name != self.bot_name:
             settings.load(bot_name=self.bot_name)
-            
+
         self.data_dir = settings.DATA_DIR
         self.log_file = self.data_dir / f"{self.bot_name}.log"
 
@@ -35,7 +35,7 @@ class SystemdServiceManager(OSServiceManager):
         service_dir = Path.home() / ".config" / "systemd" / "user"
         service_dir.mkdir(parents=True, exist_ok=True)
         template_path = service_dir / "telegram-acp-client@.service"
-        
+
         if not template_path.exists():
             python_path = sys.executable
             template_content = f"""[Unit]
@@ -158,7 +158,7 @@ class WindowsServiceManager(OSServiceManager):
 
     def start(self):
         subprocess.run(["schtasks", "/Run", "/TN", self.task_name])
-    
+
     def stop(self):
         ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -match 'telegram_acp_client run {self.bot_name}' }} | Invoke-CimMethod -MethodName Terminate"
         subprocess.run(["powershell", "-Command", ps_cmd])

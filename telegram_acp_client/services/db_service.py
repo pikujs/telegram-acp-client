@@ -1,6 +1,8 @@
+
 import aiosqlite
+
 from telegram_acp_client.config import settings
-from typing import List, Tuple, Optional
+
 
 class DBService:
     def __init__(self, db_path: str = settings.DATABASE_PATH):
@@ -45,7 +47,7 @@ class DBService:
             )
             await db.commit()
 
-    async def get_last_session_id(self, chat_id: int) -> Optional[int]:
+    async def get_last_session_id(self, chat_id: int) -> int | None:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT last_session_id FROM chat_state WHERE chat_id = ?", (chat_id,)) as cursor:
                 row = await cursor.fetchone()
@@ -60,20 +62,20 @@ class DBService:
             await db.commit()
             return cursor.lastrowid
 
-    async def get_sessions(self, chat_id: int) -> List[Tuple[int, str, str]]:
+    async def get_sessions(self, chat_id: int) -> list[tuple[int, str, str]]:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT id, name, path FROM sessions WHERE chat_id = ? ORDER BY id DESC LIMIT 10", 
+                "SELECT id, name, path FROM sessions WHERE chat_id = ? ORDER BY id DESC LIMIT 10",
                 (chat_id,)
             ) as cursor:
                 return await cursor.fetchall()
 
-    async def get_session(self, sid: int) -> Optional[Tuple[str, str]]:
+    async def get_session(self, sid: int) -> tuple[str, str] | None:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT name, path FROM sessions WHERE id = ?", (sid,)) as cursor:
                 return await cursor.fetchone()
 
-    async def get_session_by_name(self, chat_id: int, name: str) -> Optional[int]:
+    async def get_session_by_name(self, chat_id: int, name: str) -> int | None:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT id FROM sessions WHERE chat_id = ? AND name = ?", (chat_id, name)) as cursor:
                 row = await cursor.fetchone()
@@ -97,21 +99,21 @@ class DBService:
                 # Return in chronological order
                 return rows[::-1]
 
-    async def export_and_delete_session(self, session_id: int) -> Optional[str]:
+    async def export_and_delete_session(self, session_id: int) -> str | None:
         async with aiosqlite.connect(self.db_path) as db:
             # 1. Get session info
             async with db.execute("SELECT name, path FROM sessions WHERE id = ?", (session_id,)) as cursor:
                 session_info = await cursor.fetchone()
                 if not session_info:
                     return None
-            
+
             # 2. Get all messages for export
             async with db.execute(
                 "SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY id ASC",
                 (session_id,)
             ) as cursor:
                 messages = await cursor.fetchall()
-            
+
             # 3. Export to log file
             log_filename = f"session_{session_id}_{session_info[0]}_export.log"
             log_filepath = settings.DATA_DIR / log_filename
@@ -121,19 +123,19 @@ class DBService:
                 for role, content, timestamp in messages:
                     f.write(f"[{timestamp}] {role.upper()}:\n{content}\n")
                     f.write("-" * 40 + "\n")
-            
+
             # 4. Delete messages
             await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            
+
             # 5. Delete session
             await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-            
+
             # 6. Unset last_session_id if it matches
             await db.execute(
-                "UPDATE chat_state SET last_session_id = NULL WHERE last_session_id = ?", 
+                "UPDATE chat_state SET last_session_id = NULL WHERE last_session_id = ?",
                 (session_id,)
             )
-            
+
             await db.commit()
             return str(log_filepath)
 

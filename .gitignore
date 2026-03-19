@@ -1,4 +1,6 @@
+# =============================================================================
 # Python-generated files
+# =============================================================================
 __pycache__/
 .pytest_cache/
 *.py[oc]
@@ -7,30 +9,43 @@ dist/
 wheels/
 *.egg-info
 
+# =============================================================================
 # Virtual environments
-.venv
+# =============================================================================
+.venv/
+venv/
+ENV/
 
-
-# Bot configurations
+# =============================================================================
+# Bot configurations and runtime data
+# =============================================================================
+# Bot instance runtime directories
 bots/
-
-# Database file
-database.db
-
-# logs
-*.log
-
-# Agent logs
-.agent-shell
-agent-shell
-
-
-# env files
-.env
+# Bot configuration files (tokens, credentials)
+*.json
+# Exception: example config is safe to commit
+!example-bot.json
+# Legacy bot configs
 bot.json
 default.json
+# SQLite database files
 *.db
-*.json
-!example-bot.json
+database.db
+
+# =============================================================================
+# Logs and runtime artifacts
+# =============================================================================
+*.log
+.agent-shell/
+agent-shell/
 promotions/
+
+# =============================================================================
+# Environment and secrets
+# =============================================================================
+.env
+
+# =============================================================================
+# Development tools (local-only, do not commit)
+# =============================================================================
 telegram-acp-dev@.service

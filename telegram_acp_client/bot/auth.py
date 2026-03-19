@@ -1,7 +1,9 @@
 import logging
 from functools import wraps
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
 from telegram_acp_client.config import settings
 
 logger = logging.getLogger(__name__)
@@ -12,7 +14,7 @@ def authorized_only(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         if not update.effective_user or not update.effective_user.username:
             return
-        
+
         username = update.effective_user.username
         if username not in settings.ALLOWED_USERS:
             logger.warning(f"Unauthorized access attempt by @{username}")
@@ -23,7 +25,7 @@ def authorized_only(func):
                 from telegram_acp_client.bot.messaging import safe_answer
                 await safe_answer(update.callback_query, "⛔ Unauthorized", show_alert=True)
             return
-            
+
         return await func(update, context, *args, **kwargs)
     return wrapper
 
