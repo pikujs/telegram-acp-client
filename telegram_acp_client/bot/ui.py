@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from typing import Any, Dict, List, Optional
-from telegram import InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from telegram.ext import ContextTypes
 
 from telegram_acp_client.bot.messaging import safe_edit, send_safe_message, safe_api_call
@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 
 class EntityRenderer:
     """Base class for rendering an InteractionEntity to Telegram message bubbles."""
-    def __init__(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, entity: InteractionEntity):
+    def __init__(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, session_id: int, entity: InteractionEntity):
         self.context = context
         self.chat_id = chat_id
+        self.session_id = session_id
         self.entity = entity
         self.messages = [] # List of Telegram Message objects
 
@@ -29,8 +30,8 @@ class EntityRenderer:
 
 class TextRenderer(EntityRenderer):
     """Renders streaming text (messages or thoughts) using multiple bubbles if needed."""
-    def __init__(self, context, chat_id, entity: TextEntity):
-        super().__init__(context, chat_id, entity)
+    def __init__(self, context, chat_id, session_id, entity: TextEntity):
+        super().__init__(context, chat_id, session_id, entity)
         self.streamer = MessageStreamer(
             context, chat_id, entity.entity_id,
             prefix=entity.prefix, 
@@ -72,7 +73,7 @@ class ToolRenderer(EntityRenderer):
     KIND_EMOJIS = {
         "read": "📖", "edit": "📝", "delete": "🗑️", 
         "move": "📦", "search": "🔍", "execute": "⚙️", 
-        "think": "💭", "fetch": "🌐", "other": "🔧"
+        "think": "💭", "fetch": "🌐", "question": "❓", "other": "🔧"
     }
 
     async def render(self):
@@ -97,23 +98,54 @@ class ToolRenderer(EntityRenderer):
             self.entity.tool_kind
         )
         
-        text = f"{progress_prefix}{status_emoji} *Tool {status_text}* (`{self.entity.entity_id}`): {safe_title}"
+        # Special formatting for questions
+        if self.entity.tool_kind == "question":
+            text = f"❓ *Agent Question:* {safe_title}"
+        else:
+            text = f"{progress_prefix}{status_emoji} *Tool {status_text}* (`{self.entity.entity_id}`): {safe_title}"
 
         # 2. Add results if completed
+        keyboard = []
         if self.entity.status == "completed" and self.entity.content:
             text += "\n"
+            full_buffer = ""
             for item in self.entity.content:
                 inner_content = getattr(item, "content", None) or (item.get("content") if isinstance(item, dict) else None)
                 if inner_content:
                     extracted = self._robust_extract(inner_content)
-                    if extracted: text += f"\n{extracted}"
+                    if extracted: full_buffer += f"\n{extracted}"
+
+            # Paging logic for long output
+            all_lines = full_buffer.strip().splitlines()
+            limit = 30
+            page_size = self.entity.data.get("page_size", 20)
+            current_page = self.entity.data.get("current_page", 1)
+            visible_count = current_page * page_size
+
+            if len(all_lines) > limit:
+                display_lines = all_lines[:visible_count]
+                has_more = len(all_lines) > visible_count
+                
+                text += "\n" + "\n".join(display_lines)
+                text += f"\n\n_(Showing {min(visible_count, len(all_lines))} of {len(all_lines)} lines)_"
+                
+                if has_more:
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "➕ More Output", 
+                            callback_data=("more_output", self.session_id, self.entity.entity_id)
+                        )
+                    ])
+            else:
+                text += full_buffer
 
         # 3. Update or send message
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         if not self.messages:
-            msg = await send_safe_message(self.context, self.chat_id, text)
+            msg = await send_safe_message(self.context, self.chat_id, text, reply_markup=reply_markup)
             if msg: self.messages.append(msg)
         else:
-            await safe_edit(self.messages[0], text)
+            await safe_edit(self.messages[0], text, reply_markup=reply_markup)
 
     def _robust_extract(self, content: Any) -> str | None:
         """Robustly extract text from any ContentBlock kind."""
@@ -122,14 +154,14 @@ class ToolRenderer(EntityRenderer):
         c_type = getattr(content, "type", None) or (content.get("type") if isinstance(content, dict) else None)
         
         if c_type == "text":
-            return getattr(content, "text", None) or content.get("text")
+            return getattr(content, "text", None) or (content.get("text") if isinstance(content, dict) else None)
         elif c_type == "image":
             return "🖼️ _[Image]_"
         elif c_type == "audio":
             return "🎵 _[Audio]_"
         elif c_type == "resource":
-            res = getattr(content, "resource", None) or content.get("resource", {})
-            uri = getattr(res, "uri", "unknown") or res.get("uri", "unknown")
+            res = getattr(content, "resource", None) or (content.get("resource", {}) if isinstance(content, dict) else {})
+            uri = getattr(res, "uri", "unknown") or (res.get("uri", "unknown") if isinstance(res, dict) else "unknown")
             return f"📄 _[Resource: {uri}]_"
         
         # Fallback
@@ -147,12 +179,12 @@ class PlanRenderer(EntityRenderer):
         else:
             await safe_edit(self.messages[0], text)
 
-def create_renderer(context, chat_id, entity: InteractionEntity) -> EntityRenderer:
+def create_renderer(context, chat_id, session_id, entity: InteractionEntity) -> EntityRenderer:
     """Factory to create the appropriate renderer for an entity kind."""
     if isinstance(entity, TextEntity):
-        return TextRenderer(context, chat_id, entity)
+        return TextRenderer(context, chat_id, session_id, entity)
     if isinstance(entity, ToolEntity):
-        return ToolRenderer(context, chat_id, entity)
+        return ToolRenderer(context, chat_id, session_id, entity)
     if isinstance(entity, PlanEntity):
-        return PlanRenderer(context, chat_id, entity)
-    return EntityRenderer(context, chat_id, entity)
+        return PlanRenderer(context, chat_id, session_id, entity)
+    return EntityRenderer(context, chat_id, session_id, entity)

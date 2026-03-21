@@ -49,9 +49,6 @@ KIND_EMOJIS = {
 async def start_agent_service(update, context, db_id, path):
     chat_id = update.effective_chat.id
 
-    # Track renderers for each active entity (thought, message, etc.)
-    renderers: dict[str, EntityRenderer] = {}
-
     async def on_entity_change(session_id, entity_id):
         session = acp_service.active_processes.get(db_id)
         if not session:
@@ -61,21 +58,27 @@ async def start_agent_service(update, context, db_id, path):
         if not entity:
             return
 
-        if entity_id not in renderers:
-            renderers[entity_id] = create_renderer(context, chat_id, entity)
+        if entity_id not in session.renderers:
+            session.renderers[entity_id] = create_renderer(context, chat_id, db_id, entity)
 
-        await renderers[entity_id].render()
+        await session.renderers[entity_id].render()
 
     async def on_entity_finished(session_id, entity_id):
-        renderer = renderers.pop(entity_id, None)
+        session = acp_service.active_processes.get(db_id)
+        if not session:
+            return
+        renderer = session.renderers.pop(entity_id, None)
         if renderer:
             await renderer.finalize()
 
     async def close_stream():
+        session = acp_service.active_processes.get(db_id)
+        if not session:
+            return
         # Finalize all active renderers
-        for renderer in list(renderers.values()):
+        for renderer in list(session.renderers.values()):
             await renderer.finalize()
-        renderers.clear()
+        session.renderers.clear()
 
     async def on_permission(tool_call, options):
         await close_stream()
@@ -239,15 +242,44 @@ async def start_agent_service(update, context, db_id, path):
             ri = {}
 
         kind_val = "other"
+        tc_idx_str = "unknown"
         if session:
             state = session.entities.get(tc_id)
             if state and isinstance(state, ToolEntity):
                 ri = {**ri, **state.raw_input}
                 kind_val = state.tool_kind
 
+            # Find the tc_idx from registry to reconstruct callback data
+            for idx, reg in session.permission_registry.items():
+                if reg.get("full_id") == tc_id:
+                    tc_idx_str = idx
+                    break
+
         safe_title = format_interaction_title(tool_call.title, ri, kind_val)
+
+        # Reconstruct buttons
+        btns = []
+        for opt in options:
+            o_kind = getattr(opt, "kind", None)
+            if hasattr(o_kind, "value"):
+                o_kind = o_kind.value
+            emoji = "✅" if "allow" in (o_kind or "").lower() else "❌"
+            if not o_kind:
+                emoji = "✅" if is_approval_option(opt.name) else "❌"
+            btns.append(
+                [
+                    InlineKeyboardButton(
+                        f"{emoji} {opt.name}",
+                        callback_data=("perm", db_id, tc_idx_str, opt.option_id),
+                    )
+                ]
+            )
+
         await safe_edit(
-            msg_obj, f"🔐 *Permission Requested:*\n{safe_title}", parse_mode="Markdown"
+            msg_obj,
+            f"🔐 *Permission Requested:*\n{safe_title}",
+            reply_markup=InlineKeyboardMarkup(btns),
+            parse_mode="Markdown",
         )
 
     async def on_system_notification(text):
@@ -558,3 +590,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.exception("Failed to switch mode")
                 await safe_answer(query, f"Error switching mode: {e}", show_alert=True)
+        elif action == "more_output":
+            _, sid, tc_id = data
+            session = acp_service.active_processes.get(sid)
+            if session:
+                entity = session.entities.get(tc_id)
+                if entity and isinstance(entity, ToolEntity):
+                    entity.data["current_page"] = entity.data.get("current_page", 1) + 1
+                    if tc_id not in session.renderers:
+                        session.renderers[tc_id] = create_renderer(
+                            context, chat_id, sid, entity
+                        )
+                    await session.renderers[tc_id].render()
+                    await safe_answer(query, "Loading more output...")
+                else:
+                    await safe_answer(query, "Tool output not found.", show_alert=True)
+            else:
+                await safe_answer(query, "Session not active.", show_alert=True)

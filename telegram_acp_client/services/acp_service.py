@@ -482,6 +482,8 @@ class ActiveSession:
 
         # Unified registry for all tracked entities (thought, message, tool, etc.)
         self.entities: dict[str, InteractionEntity] = {}
+        # Track UI renderers for active entities
+        self.renderers: dict[str, Any] = {}
         # IDs of currently active text streams
         self.active_thought_id: str | None = None
         self.active_text_id: str | None = None
@@ -512,15 +514,13 @@ class ACPService:
     ) -> ActiveSession:
         agent_cmd = settings.AGENT_COMMAND.split()
 
-        # Change to target directory for the subprocess
-        old_cwd = os.getcwd()
-        os.chdir(path)
         try:
             proc = await asyncio.create_subprocess_exec(
                 *agent_cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=None,
+                cwd=path,
             )
             if proc.stdin is None or proc.stdout is None:
                 raise RuntimeError("Failed to open pipes for agent process")
@@ -548,8 +548,9 @@ class ACPService:
             )
             self.active_processes[db_id] = session
             return session
-        finally:
-            os.chdir(old_cwd)
+        except Exception as e:
+            logger.error(f"Failed to start agent session: {e}")
+            raise
 
     async def stop_session(self, db_id: int):
         if db_id in self.active_processes:

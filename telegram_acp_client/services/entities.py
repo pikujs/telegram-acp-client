@@ -44,6 +44,8 @@ class ToolEntity(InteractionEntity):
         self.tool_kind = "other"
         self.raw_input = {}
         self.content = []
+        self.data["current_page"] = 1
+        self.data["page_size"] = 20
 
     def update(self, update: Any) -> bool:
         changed = False
