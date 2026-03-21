@@ -28,6 +28,14 @@ from acp.schema import (
 )
 
 from telegram_acp_client.config import settings
+from telegram_acp_client.services.entities import (
+    InteractionEntity,
+    ModeEntity,
+    PlanEntity,
+    TextEntity,
+    ToolEntity,
+    UsageEntity,
+)
 from telegram_acp_client.services.terminal_service import terminal_service
 
 logger = logging.getLogger(__name__)
@@ -46,6 +54,8 @@ class TelegramGeminiClient(Client):
         ) = None,
         on_tool_update: Callable[[str, str, Any], Any] | None = None,
         on_permission_update: Callable[[str, Any, Any, list], Any] | None = None,
+        on_entity_change: Callable[[str, str], Any] | None = None,
+        on_entity_finished: Callable[[str, str], Any] | None = None,
     ):
         super().__init__()
         self.on_text = on_text
@@ -56,6 +66,8 @@ class TelegramGeminiClient(Client):
         self.on_terminal_request = on_terminal_request
         self.on_tool_update = on_tool_update
         self.on_permission_update = on_permission_update
+        self.on_entity_change = on_entity_change
+        self.on_entity_finished = on_entity_finished
 
         # Map update types to their respective handler methods
         self._HANDLERS = {
@@ -66,6 +78,7 @@ class TelegramGeminiClient(Client):
             "ToolCallUpdate": self._handle_tool_completion,
             "AgentPlanUpdate": self._handle_plan_update,
             "CurrentModeUpdate": self._handle_mode_update,
+            "UsageUpdate": self._handle_usage_update,
             "AvailableCommandsUpdate": self._handle_available_commands,
         }
 
@@ -76,7 +89,7 @@ class TelegramGeminiClient(Client):
 
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
         update_type = type(update).__name__
-        
+
         # Check for dict-wrapped updates from some backends
         if isinstance(update, dict) and "sessionUpdate" in update:
             update_type = update["sessionUpdate"]
@@ -95,171 +108,183 @@ class TelegramGeminiClient(Client):
         else:
             logger.debug(f"No handler for update type: {update_type}")
 
+    def _get_or_create_entity(
+        self, session: "ActiveSession", entity_id: str, kind: str, **kwargs
+    ) -> InteractionEntity:
+        if entity_id not in session.entities:
+            if kind == "tool":
+                entity = ToolEntity(entity_id, kind)
+            elif kind in ["message", "thought"]:
+                role = kwargs.get("role", "agent")
+                prefix = kwargs.get("prefix", "")
+                entity = TextEntity(entity_id, kind, role, prefix)
+            elif kind == "plan":
+                entity = PlanEntity(entity_id)
+            elif kind == "mode":
+                entity = ModeEntity(entity_id)
+            elif kind == "usage":
+                entity = UsageEntity(entity_id)
+            else:
+                entity = InteractionEntity(entity_id, kind)
+            session.entities[entity_id] = entity
+        return session.entities[entity_id]
+
     async def _handle_message_chunk(self, session_id: str, update: Any):
+        session = self._get_session_by_acp_id(session_id)
+        if not session:
+            return
+
         content = getattr(update, "content", None) or (
             update.get("content") if isinstance(update, dict) else None
         )
         text = self._extract_text(content)
-        if text:
-            await self.on_text(text)
+        if not text:
+            return
+
+        # Use a stable ID for the current message stream
+        if not session.active_text_id or not session.active_text_id.startswith("msg_"):
+            session.active_text_id = f"msg_{len(session.entities)}"
+
+        entity = self._get_or_create_entity(session, session.active_text_id, "message")
+        if entity.update(text) and self.on_entity_change:
+            await self.on_entity_change(session_id, entity.entity_id)
 
     async def _handle_thought_chunk(self, session_id: str, update: Any):
+        session = self._get_session_by_acp_id(session_id)
+        if not session:
+            return
+
         content = getattr(update, "content", None) or (
             update.get("content") if isinstance(update, dict) else None
         )
         text = self._extract_text(content)
-        if text and self.on_thought:
-            await self.on_thought(text)
+        if not text:
+            return
+
+        # Use a stable ID for the current thought stream
+        if not session.active_thought_id or not session.active_thought_id.startswith(
+            "thought_"
+        ):
+            session.active_thought_id = f"thought_{len(session.entities)}"
+
+        entity = self._get_or_create_entity(
+            session, session.active_thought_id, "thought", role="thought", prefix="💭 "
+        )
+        if entity.update(text) and self.on_entity_change:
+            await self.on_entity_change(session_id, entity.entity_id)
 
     async def _handle_tool_start(self, session_id: str, update: Any):
         tc_id = getattr(update, "tool_call_id", "unknown")
         logger.info(f"Agent started tool call: {tc_id} ({update.title})")
         logger.debug(f"ToolCall object: {update}")
-        
+
         session = self._get_session_by_acp_id(session_id)
-        if session:
-            self._merge_tool_call_update(session, tc_id, update)
+        if not session:
+            return
 
-        msg_obj = await self.on_tool_start(update)
-        if msg_obj and session:
-            session.tool_call_messages[tc_id] = msg_obj
+        # Finalize any active text streams when a tool starts
+        await self._finalize_active_streams(session)
 
-    def _merge_tool_call_update(self, session: "ActiveSession", tc_id: str, update: Any):
-        """Merges a ToolCall or ToolCallUpdate into the session's tracked tool call state."""
-        if tc_id not in session.tool_calls:
-            session.tool_calls[tc_id] = {
-                "tool_call_id": tc_id,
-                "title": getattr(update, "title", "unknown"),
-                "kind": getattr(update, "kind", "other"),
-                "status": getattr(update, "status", "pending"),
-                "raw_input": {},
-                "content": [],
-            }
-        
-        state = session.tool_calls[tc_id]
-        
-        # Update simple fields if they are present in the update
-        for field in ["title", "kind", "status"]:
-            val = getattr(update, field, None)
-            if val is not None:
-                state[field] = val
-        
-        # Merge raw_input (dictionary)
-        ri = getattr(update, "raw_input", None) or (update.get("raw_input") if isinstance(update, dict) else None)
-        if ri and isinstance(ri, dict):
-            if not isinstance(state["raw_input"], dict):
-                state["raw_input"] = {}
-            state["raw_input"].update(ri)
-            
-        # Append content
-        content = getattr(update, "content", None)
-        if content:
-            if isinstance(content, list):
-                state["content"].extend(content)
-            else:
-                state["content"].append(content)
-                
-        return state
+        entity = self._get_or_create_entity(session, tc_id, "tool")
+        entity.update(update)
+        if self.on_entity_change:
+            await self.on_entity_change(session_id, tc_id)
 
     async def _handle_tool_progress(self, session_id: str, update: Any):
-        status = getattr(update, "status", "in_progress")
         tc_id = getattr(update, "tool_call_id", "unknown")
-        logger.info(f"Tool call progress: {tc_id} -> {status}")
+        logger.info(f"Tool call progress: {tc_id} -> {getattr(update, 'status', 'in_progress')}")
         logger.debug(f"ToolCallProgress object: {update}")
 
         session = self._get_session_by_acp_id(session_id)
-        if session:
-            state = self._merge_tool_call_update(session, tc_id, update)
-        else:
-            state = {"status": status, "title": "unknown"}
+        if not session:
+            return
+
+        entity = self._get_or_create_entity(session, tc_id, "tool")
+        if entity.update(update) and self.on_entity_change:
+            await self.on_entity_change(session_id, tc_id)
 
         # If there's a pending permission request for this tool, update it with new info
-        if session and tc_id in session.permission_messages and self.on_permission_update:
+        if tc_id in session.permission_messages and self.on_permission_update:
             msg_obj, options = session.permission_messages[tc_id]
-            # Create a synthetic tool call object with the updated state for the callback
             from acp.schema import ToolCall
+
             merged_tool_call = ToolCall(
                 tool_call_id=tc_id,
-                title=state.get("title", "unknown"),
-                kind=state.get("kind", "other"),
-                status=state.get("status", "pending"),
-                raw_input=state.get("raw_input", {}),
-                content=state.get("content", [])
+                title=getattr(entity, "title", "unknown"),
+                kind=getattr(entity, "tool_kind", "other"),
+                status=getattr(entity, "status", "pending"),
+                raw_input=getattr(entity, "raw_input", {}),
+                content=getattr(entity, "content", []),
             )
             await self.on_permission_update(tc_id, merged_tool_call, msg_obj, options)
 
-        # Build progress message
-        msg = f"⏳ *Tool Update* (`{tc_id}`): {status}"
-        content = getattr(update, "content", None)
-        if content:
-            for item in content:
-                path = getattr(item, "path", None) or (
-                    item.get("path") if isinstance(item, dict) else None
-                )
-                if path:
-                    msg += f"\nFile: `{path}`"
-
-        if session and tc_id in session.tool_call_messages and self.on_tool_update:
-            msg_obj = session.tool_call_messages[tc_id]
-            await self.on_tool_update(tc_id, msg, msg_obj)
-        else:
-            await self._notify(msg)
-
     async def _handle_tool_completion(self, session_id: str, update: Any):
-        status = getattr(update, "status", "completed")
         tc_id = getattr(update, "tool_call_id", "unknown")
-        logger.info(f"Tool call completion: {tc_id} -> {status}")
+        logger.info(f"Tool call completion: {tc_id}")
         logger.debug(f"ToolCallUpdate (completion) object: {update}")
 
         session = self._get_session_by_acp_id(session_id)
-        if session:
-            state = self._merge_tool_call_update(session, tc_id, update)
+        if not session:
+            return
 
-        emoji = "✅" if status == "completed" else "❌"
-        msg = f"{emoji} *Tool {status.title()}* (`{tc_id}`)"
-        content_list = getattr(update, "content", [])
-        if content_list:
-            for item in content_list:
-                inner_content = getattr(item, "content", None) or (
-                    item.get("content") if isinstance(item, dict) else None
-                )
-                if inner_content:
-                    text = self._extract_text(inner_content)
-                    if text:
-                        msg += f"\n\n{text}"
+        entity = self._get_or_create_entity(session, tc_id, "tool")
+        entity.update(update)
+        if self.on_entity_change:
+            await self.on_entity_change(session_id, tc_id)
 
-        if session and tc_id in session.tool_call_messages and self.on_tool_update:
-            msg_obj = session.tool_call_messages[tc_id]
-            await self.on_tool_update(tc_id, msg, msg_obj)
-            # Remove from tracking after completion
-            session.tool_call_messages.pop(tc_id, None)
-            # We keep state in tool_calls for permission requests if they come later (though unlikely)
-        else:
-            await self._notify(msg)
+        if self.on_entity_finished:
+            await self.on_entity_finished(session_id, tc_id)
+
+    async def _finalize_active_streams(self, session: "ActiveSession"):
+        """Closes active thought/message streams."""
+        for eid in [session.active_thought_id, session.active_text_id]:
+            if eid and self.on_entity_finished:
+                await self.on_entity_finished(session.acp_session.session_id, eid)
+
+        session.active_thought_id = None
+        session.active_text_id = None
 
     async def _handle_plan_update(self, session_id: str, update: Any):
-        entries = getattr(update, "entries", [])
-        logger.info(f"Agent plan update with {len(entries)} entries")
-        plan_text = "\n".join([f"- [{e.status}] {e.content}" for e in entries])
-        await self._notify(f"📋 *New Plan:*\n{plan_text}")
+        session = self._get_session_by_acp_id(session_id)
+        if not session:
+            return
+
+        entity = self._get_or_create_entity(session, "current_plan", "plan")
+        if entity.update(update) and self.on_entity_change:
+            await self.on_entity_change(session_id, "current_plan")
 
     async def _handle_mode_update(self, session_id: str, update: Any):
-        mode = getattr(update, "mode", None)
-        logger.info(f"Agent mode updated to: {mode}")
         session = self._get_session_by_acp_id(session_id)
+        if not session:
+            return
+
+        entity = self._get_or_create_entity(session, "current_mode", "mode")
+        if entity.update(update) and self.on_entity_change:
+            await self.on_entity_change(session_id, "current_mode")
+
+        # Compatibility with legacy modes logic
+        mode = getattr(update, "mode", None)
         if (
-            session
+            session.acp_session
             and hasattr(session.acp_session, "modes")
             and session.acp_session.modes
         ):
             session.acp_session.modes.current_mode_id = mode
+
+    async def _handle_usage_update(self, session_id: str, update: Any):
+        session = self._get_session_by_acp_id(session_id)
+        if not session:
+            return
+
+        entity = self._get_or_create_entity(session, "usage_stats", "usage")
+        if entity.update(update) and self.on_entity_change:
+            await self.on_entity_change(session_id, "usage_stats")
 
     async def _handle_available_commands(self, session_id: str, update: Any):
         commands = getattr(update, "available_commands", [])
         logger.info(f"Available commands updated: {len(commands)} commands")
         session = self._get_session_by_acp_id(session_id)
         if session:
-            # Store in session for quick access/display
             session.available_commands = commands
             cmd_list = ", ".join([getattr(c, "name", str(c)) for c in commands[:10]])
             if len(commands) > 10:
@@ -454,14 +479,18 @@ class ActiveSession:
         self.is_busy = False
         self.streamer = None
         self.available_commands = []
-        # Track tool call messages for updating existing messages instead of sending new ones
-        self.tool_call_messages: dict[str, Any] = {} # tool_call_id -> Message or ID
-        # Track full state of tool calls (merged updates)
-        self.tool_calls: dict[str, Any] = {} # tool_call_id -> state dict
-        # Track pending permission messages for updating if new info arrives
-        self.permission_messages: dict[str, Any] = {} # tool_call_id -> (Message, options)
-        # Registry for pending permissions
 
+        # Unified registry for all tracked entities (thought, message, tool, etc.)
+        self.entities: dict[str, InteractionEntity] = {}
+        # IDs of currently active text streams
+        self.active_thought_id: str | None = None
+        self.active_text_id: str | None = None
+
+        # Track tool call messages for legacy update logic (will be migrated to entities)
+        self.tool_call_messages: dict[str, Any] = {}
+        # Track pending permission messages
+        self.permission_messages: dict[str, Any] = {}
+        # Registry for pending permission futures
         # Format: { tool_call_id: { "future": Future, "options": { "1": "real_id", ... } } }
         self.permission_registry: dict[str, dict[str, Any]] = {}
 

@@ -25,8 +25,10 @@ from telegram_acp_client.bot.messaging import (
     typing_action,
 )
 from telegram_acp_client.bot.streamer import MessageStreamer
+from telegram_acp_client.bot.ui import EntityRenderer, create_renderer, format_interaction_title
 from telegram_acp_client.services.acp_service import TelegramGeminiClient, acp_service
 from telegram_acp_client.services.db_service import db_service
+from telegram_acp_client.services.entities import ToolEntity
 from telegram_acp_client.services.terminal_service import terminal_service
 
 logger = logging.getLogger(__name__)
@@ -47,47 +49,33 @@ KIND_EMOJIS = {
 async def start_agent_service(update, context, db_id, path):
     chat_id = update.effective_chat.id
 
-    async def close_stream():
-        session = acp_service.active_processes.get(db_id)
-        if session and session.streamer:
-            await session.streamer.close()
-            session.streamer = None
+    # Track renderers for each active entity (thought, message, etc.)
+    renderers: dict[str, EntityRenderer] = {}
 
-    async def on_text(text):
+    async def on_entity_change(session_id, entity_id):
         session = acp_service.active_processes.get(db_id)
         if not session:
             return
 
-        if session.streamer and session.streamer.role != "agent":
-            await close_stream()
+        entity = session.entities.get(entity_id)
+        if not entity:
+            return
 
-        if session.streamer is None:
-            session.streamer = MessageStreamer(context, chat_id, db_id, role="agent")
-            await session.streamer.start()
+        if entity_id not in renderers:
+            renderers[entity_id] = create_renderer(context, chat_id, entity)
 
-        await session.streamer.add_text(text)
+        await renderers[entity_id].render()
 
-    def format_tool_title(tool_call, ri, kind_val=None):
-        title = tool_call.title
-        path = ri.get("path") or ri.get("file_path") or ri.get("filePath") or ri.get("filepath")
-        
-        # 1. Start with escaped title
-        safe_title = escape_markdown(title)
-        
-        # 2. Add path if present and not already in title
-        if path and path not in title:
-            safe_title += f": `{escape_markdown(str(path))}`"
-            
-        # 3. Add command for execute/bash tools
-        kind = kind_val or getattr(tool_call, "kind", "other")
-        if hasattr(kind, "value"): kind = kind.value
-        
-        if kind == "execute" or "bash" in title.lower() or "shell" in title.lower():
-            cmd = ri.get("command") or ri.get("cmd") or ri.get("script") or ri.get("code")
-            if cmd:
-                safe_title += f"\n\n`{escape_markdown(str(cmd))}`"
-        
-        return safe_title
+    async def on_entity_finished(session_id, entity_id):
+        renderer = renderers.pop(entity_id, None)
+        if renderer:
+            await renderer.finalize()
+
+    async def close_stream():
+        # Finalize all active renderers
+        for renderer in list(renderers.values()):
+            await renderer.finalize()
+        renderers.clear()
 
     async def on_permission(tool_call, options):
         await close_stream()
@@ -99,48 +87,64 @@ async def start_agent_service(update, context, db_id, path):
         if not session:
             return None
 
-        # Use tracked state if available to complement the tool_call object
-        state = session.tool_calls.get(tc_id, {})
-        
+        # Ensure the tool entity exists and is up to date for data merging
+        entity = session.client._get_or_create_entity(session, tc_id, "tool")
+        entity.update(tool_call)
+
         tc_index = len(session.permission_registry) + 1
         tc_idx_str = str(tc_index)
-        # Store option names mapping to reliably detect approval keywords in callback handler
         session.permission_registry[tc_idx_str] = {
             "future": future,
             "full_id": tc_id,
             "options": {opt.option_id: opt.name for opt in options},
         }
 
+        # Format title with path and command using the shared UI helper
         # Merge raw_input from state into a local ri dict for extraction
-        ri = getattr(tool_call, "raw_input", {})
-        if not isinstance(ri, dict): ri = {}
-        tracked_ri = state.get("raw_input", {})
-        if isinstance(tracked_ri, dict):
-            # Tracked data takes precedence as it might be newer (e.g. from Progress update)
-            ri = {**ri, **tracked_ri}
-        
-        logger.debug(f"Merged raw_input for {tc_id}: {ri}")
+        tc_ri = getattr(tool_call, "raw_input", {}) or {}
+        ri = {**tc_ri, **entity.raw_input}
+        safe_title = format_interaction_title(tool_call.title, ri, entity.tool_kind)
 
         diff_text = ""
         # Check both the provided tool_call and the tracked state for content
         content_sources = []
-        if hasattr(tool_call, "content") and tool_call.content: content_sources.append(tool_call.content)
-        if state.get("content"): content_sources.append(state["content"])
+        if hasattr(tool_call, "content") and tool_call.content:
+            content_sources.append(tool_call.content)
+        if entity.content:
+            content_sources.append(entity.content)
 
         for content_list in content_sources:
-            if diff_text: break
+            if diff_text:
+                break
             for content_item in content_list:
                 c_type = getattr(content_item, "type", None) or (
                     content_item.get("type") if isinstance(content_item, dict) else None
                 )
                 if c_type == "diff":
-                    old_txt = getattr(content_item, "oldText", getattr(content_item, "old_text", "")) or (content_item.get("oldText") if isinstance(content_item, dict) else "")
-                    new_txt = getattr(content_item, "newText", getattr(content_item, "new_text", "")) or (content_item.get("newText") if isinstance(content_item, dict) else "")
-                    path = getattr(content_item, "path", "") or (content_item.get("path") if isinstance(content_item, dict) else "")
-                    diff_text = format_diff(str(old_txt or ""), str(new_txt or ""), str(path))
+                    old_txt = getattr(
+                        content_item, "oldText", getattr(content_item, "old_text", "")
+                    ) or (
+                        content_item.get("oldText")
+                        if isinstance(content_item, dict)
+                        else ""
+                    )
+                    new_txt = getattr(
+                        content_item, "newText", getattr(content_item, "new_text", "")
+                    ) or (
+                        content_item.get("newText")
+                        if isinstance(content_item, dict)
+                        else ""
+                    )
+                    path = getattr(content_item, "path", "") or (
+                        content_item.get("path")
+                        if isinstance(content_item, dict)
+                        else ""
+                    )
+                    diff_text = format_diff(
+                        str(old_txt or ""), str(new_txt or ""), str(path)
+                    )
                     break
 
-        # Fallback to merged raw_input if diff_text is still empty
         if not diff_text and ri:
             path = (
                 ri.get("path")
@@ -149,87 +153,79 @@ async def start_agent_service(update, context, db_id, path):
                 or ri.get("filepath")
                 or "unknown_file"
             )
-
             if "diff" in ri:
                 diff_text = str(ri.get("diff"))
                 lines = diff_text.splitlines()
-                clean_lines = [l for l in lines if not (l.startswith("Index: ") or l.startswith("======"))]
+                clean_lines = [
+                    l
+                    for l in lines
+                    if not (l.startswith("Index: ") or l.startswith("======"))
+                ]
                 diff_text = "\n".join(clean_lines).strip()
             else:
-                old = ri.get("oldText") or ri.get("old_str") or ri.get("oldString") or ri.get("old_string") or ri.get("old_text")
-                new = ri.get("newText") or ri.get("new_str") or ri.get("newString") or ri.get("new_string") or ri.get("new_text")
-
+                old = (
+                    ri.get("oldText")
+                    or ri.get("old_str")
+                    or ri.get("oldString")
+                    or ri.get("old_string")
+                    or ri.get("old_text")
+                )
+                new = (
+                    ri.get("newText")
+                    or ri.get("new_str")
+                    or ri.get("newString")
+                    or ri.get("new_string")
+                    or ri.get("new_text")
+                )
                 if old is not None and new is not None:
                     diff_text = format_diff(str(old), str(new), path)
-                elif "content" in ri:
-                    diff_text = format_diff("", str(ri.get("content", "")), path)
-                elif "file_text" in ri:
-                    diff_text = format_diff("", str(ri.get("file_text", "")), path)
-                elif "text" in ri:
-                    diff_text = format_diff("", str(ri.get("text", "")), path)
 
         btns = []
         for opt in options:
             o_kind = getattr(opt, "kind", None)
-            if hasattr(o_kind, "value"): o_kind = o_kind.value
-
-            if o_kind in ["allow_once", "allow_always"]:
-                emoji = "✅"
-            elif o_kind in ["reject_once", "reject_always"]:
-                emoji = "❌"
-            else:
+            if hasattr(o_kind, "value"):
+                o_kind = o_kind.value
+            emoji = "✅" if "allow" in (o_kind or "").lower() else "❌"
+            if not o_kind:
                 emoji = "✅" if is_approval_option(opt.name) else "❌"
-            btns.append([InlineKeyboardButton(f"{emoji} {opt.name}", callback_data=("perm", db_id, tc_idx_str, opt.option_id))])
-
-        # Format title with path and command
-        safe_title = format_tool_title(tool_call, ri)
-
-        # If the title itself is massive (e.g. a huge shell command), truncate it for the prompt
-        prompt_title = safe_title
-        if len(prompt_title) > 3000:
-            prompt_title = prompt_title[:3000] + "... [truncated]"
-            # Optionally send the full title as a separate message first
-            await send_safe_message(
-                context, chat_id, f"📋 *Full Tool Request Details:*\n`{safe_title}`"
+            btns.append(
+                [
+                    InlineKeyboardButton(
+                        f"{emoji} {opt.name}",
+                        callback_data=("perm", db_id, tc_idx_str, opt.option_id),
+                    )
+                ]
             )
+
+        prompt_title = (
+            safe_title[:3000] + "... [truncated]"
+            if len(safe_title) > 3000
+            else safe_title
+        )
 
         if diff_text:
             await send_split_diff(context, chat_id, diff_text)
 
         logger.info(f"SENDING PERMISSION PROMPT for {tc_id}")
-        msg_obj = None
-        try:
-            msg_obj = await send_safe_message(
-                context,
-                chat_id,
-                f"🔐 *Permission Requested:*\n{prompt_title}",
-                reply_markup=InlineKeyboardMarkup(btns),
-                parse_mode="Markdown",
-            )
-        except Exception:
-            msg_obj = await send_safe_message(
-                context,
-                chat_id,
-                f"Permission Requested:\n{tool_call.title[:3000]}",
-                reply_markup=InlineKeyboardMarkup(btns),
-            )
+        msg_obj = await send_safe_message(
+            context,
+            chat_id,
+            f"🔐 *Permission Requested:*\n{prompt_title}",
+            reply_markup=InlineKeyboardMarkup(btns),
+            parse_mode="Markdown",
+        )
 
         if msg_obj:
             session.permission_messages[tc_id] = (msg_obj, options)
 
         try:
             result = await asyncio.wait_for(future, timeout=3600)
-            logger.info(
-                f"TOOL PERMISSION RESOLVED: {tc_id} -> {'GRANTED' if result else 'DENIED'}"
-            )
             return result
         except TimeoutError:
             if not future.done():
                 future.set_result(None)
             await send_safe_message(
-                context,
-                chat_id,
-                f"⏳ *Timed out:* Permission for `{safe_title}` was automatically denied.",
+                context, chat_id, f"⏳ *Timed out:* Permission was automatically denied."
             )
             return None
         finally:
@@ -237,54 +233,22 @@ async def start_agent_service(update, context, db_id, path):
             session.permission_messages.pop(tc_id, None)
 
     async def on_permission_update(tc_id, tool_call, msg_obj, options):
-        # Merge raw_input from potential tracked state
         session = acp_service.active_processes.get(db_id)
         ri = getattr(tool_call, "raw_input", {})
-        if not isinstance(ri, dict): ri = {}
-        
+        if not isinstance(ri, dict):
+            ri = {}
+
+        kind_val = "other"
         if session:
-            state = session.tool_calls.get(tc_id, {})
-            tracked_ri = state.get("raw_input", {})
-            if isinstance(tracked_ri, dict):
-                ri = {**ri, **tracked_ri}
+            state = session.entities.get(tc_id)
+            if state and isinstance(state, ToolEntity):
+                ri = {**ri, **state.raw_input}
+                kind_val = state.tool_kind
 
-        safe_title = format_tool_title(tool_call, ri)
-        await safe_edit(msg_obj, f"🔐 *Permission Requested:*\n{safe_title}", parse_mode="Markdown")
-
-    async def on_tool_start(tool_call):
-        await close_stream()
-        tc_id = getattr(tool_call, "tool_call_id", "unknown")
-        logger.info(f"TOOL STARTING: {tc_id} ({tool_call.title})")
-
-        kind = getattr(tool_call, "kind", "other")
-        if hasattr(kind, "value"):
-            kind = kind.value
-        emoji = KIND_EMOJIS.get(kind, "🔧")
-
-        return await send_safe_message(
-            context, chat_id, f"{emoji} *Tool:* {escape_markdown(tool_call.title)}"
+        safe_title = format_interaction_title(tool_call.title, ri, kind_val)
+        await safe_edit(
+            msg_obj, f"🔐 *Permission Requested:*\n{safe_title}", parse_mode="Markdown"
         )
-
-    async def on_tool_update(tc_id, text, msg_obj):
-        if not msg_obj:
-            return
-        await safe_edit(msg_obj, text, parse_mode="Markdown")
-
-    async def on_thought(thought):
-        session = acp_service.active_processes.get(db_id)
-        if not session:
-            return
-
-        if session.streamer and session.streamer.role != "thought":
-            await close_stream()
-
-        if session.streamer is None:
-            session.streamer = MessageStreamer(
-                context, chat_id, db_id, prefix="💭 ", role="thought"
-            )
-            await session.streamer.start()
-
-        await session.streamer.add_text(thought)
 
     async def on_system_notification(text):
         await send_safe_message(context, chat_id, text)
@@ -303,14 +267,16 @@ async def start_agent_service(update, context, db_id, path):
         )
 
     client = TelegramGeminiClient(
-        on_text,
-        on_permission,
-        on_tool_start,
-        on_thought,
-        on_system_notification,
-        on_terminal_request,
-        on_tool_update=on_tool_update,
+        on_text=lambda t: None,
+        on_permission=on_permission,
+        on_tool_start=lambda tc: None,
+        on_thought=lambda t: None,
+        on_system_notification=on_system_notification,
+        on_terminal_request=on_terminal_request,
+        on_tool_update=lambda *args: None,
         on_permission_update=on_permission_update,
+        on_entity_change=on_entity_change,
+        on_entity_finished=on_entity_finished,
     )
 
     async with typing_action(context, chat_id):
@@ -347,7 +313,7 @@ async def start_agent_service(update, context, db_id, path):
                 mode_id = mode.id if hasattr(mode, "id") else mode
                 mode_name = mode.name if hasattr(mode, "name") else str(mode)
                 status = (
-                    "✅" if mode_id == getattr(modes, "current_mode_id", None) else "⚪"
+                    "✅" if mode_id == getattr(modes, "current_model_id", None) else "⚪"
                 )
                 keyboard.append(
                     [
@@ -393,19 +359,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     session = acp_service.active_processes[sid]
-
-    # Health Check (Disabled for now)
-    # if not session.is_alive:
-    #     logger.warning(f"Session {sid} is dead. Attempting restart.")
-    #     session_info = await db_service.get_session(sid)
-    #     if session_info:
-    #         await safe_reply(update, "⚠️ Agent session crashed. Restarting...")
-    #         await start_agent_service(update, context, sid, session_info[1])
-    #         session = acp_service.active_processes.get(sid)
-    #         if not session: return
-    #     else:
-    #         await safe_reply(update, "❌ Session lost.")
-    #         return
 
     if session.is_busy:
         await safe_reply(
@@ -482,9 +435,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await acp_service.stop_session(sid)
             await send_safe_message(context, chat_id, f"❌ Agent Error: {e}")
         finally:
-            if session.streamer:
-                await session.streamer.close()
-                session.streamer = None
+            # Entity closing handled via on_entity_finished notifications from service
             session.is_busy = False
 
     asyncio.create_task(run_prompt())

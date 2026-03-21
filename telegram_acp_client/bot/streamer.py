@@ -59,6 +59,12 @@ class MessageStreamer:
                         else:
                             logger.error(f"Error sending initial stream message: {e}")
 
+    async def update_buffer(self, full_text: str):
+        """Replaces the entire buffer with new text and triggers a send if needed."""
+        self.buffer = full_text
+        if not self.messages and self.buffer.strip():
+            await self.add_text("") # Triggers the init logic in add_text
+
     async def _update_loop(self):
         """Periodically flushes the buffer to Telegram via edit_message_text."""
         while not self._stop_event.is_set():
