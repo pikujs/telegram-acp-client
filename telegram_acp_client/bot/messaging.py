@@ -5,9 +5,103 @@ import logging
 
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 logger = logging.getLogger(__name__)
+
+
+async def send_message_draft(
+    context, chat_id, text, draft_id: int, parse_mode="Markdown", max_retries=3, **kwargs
+):
+    """
+    Send a draft message that displays typing animation without creating a permanent message.
+    
+    Uses Telegram Bot API 9.3+ sendMessageDraft method for real-time streaming.
+    Falls back to regular sendMessage if draft method is unavailable.
+    
+    Args:
+        context: Telegram context
+        chat_id: Target chat ID
+        text: Draft message text
+        draft_id: Monotonically increasing ID for continuous typing animation
+        parse_mode: Parse mode (Markdown/HTML)
+        max_retries: Maximum retry attempts for network errors
+        
+    Returns:
+        Message object (or None if draft and not yet finalized)
+    """
+    log_text = (text[:100] + "...") if len(text) > 100 else text
+    logger.info(f"DRAFT MESSAGE to {chat_id} (draft_id={draft_id}): {log_text}")
+    
+    attempt = 0
+    backoff = 0.5
+    
+    while attempt <= max_retries:
+        try:
+            # Try sendMessageDraft first (Bot API 9.3+)
+            if hasattr(context.bot, 'send_message_draft'):
+                return await context.bot.send_message_draft(
+                    chat_id=chat_id,
+                    text=text,
+                    draft_id=draft_id,
+                    parse_mode=parse_mode,
+                    **kwargs
+                )
+            else:
+                # Fallback: Use regular sendMessage for older Bot API versions
+                logger.debug("send_message_draft not available, using sendMessage fallback")
+                return await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    **kwargs
+                )
+        except BadRequest as e:
+            err_msg = str(e).lower()
+            # Handle draft-specific errors
+            if "draft" in err_msg or "textdraft" in err_msg:
+                logger.warning(f"Draft method failed, falling back to sendMessage: {e}")
+                # Fall back to regular send_message
+                try:
+                    return await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=parse_mode,
+                        **kwargs
+                    )
+                except Exception as inner_e:
+                    if "Can't parse entities" in str(inner_e):
+                        logger.warning(f"Parse failed, retrying without parse_mode: {inner_e}")
+                        return await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            **{k: v for k, v in kwargs.items() if k != 'parse_mode'}
+                        )
+                    raise
+            elif "Can't parse entities" in str(e):
+                logger.warning(f"Parse failed, retrying without parse_mode: {e}")
+                return await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    **{k: v for k, v in kwargs.items() if k != 'parse_mode'}
+                )
+            elif isinstance(e, RetryAfter):
+                wait_time = e.retry_after
+                logger.warning(f"Rate limited. Retrying after {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                raise
+        except (TimedOut, NetworkError):
+            attempt += 1
+            if attempt > max_retries:
+                logger.error(f"Failed to send draft after {max_retries} attempts: {e}")
+                raise e
+            logger.warning(f"Network error (attempt {attempt}/{max_retries}), retrying in {backoff}s...")
+            await asyncio.sleep(backoff)
+            backoff *= 2
+        except Exception as e:
+            raise e
 
 
 @contextlib.asynccontextmanager
@@ -182,7 +276,7 @@ async def send_safe_message(
                 raise e
 
 
-async def send_split_diff(context, chat_id, diff_text):
+async def send_split_diff(context, chat_id, diff_text, thread_id=None):
     """Splits a large diff into multiple messages, ensuring each is wrapped in HTML code blocks to avoid Markdown parsing errors with nested backticks."""
     if not diff_text:
         return
@@ -203,7 +297,9 @@ async def send_split_diff(context, chat_id, diff_text):
         if not is_last:
             formatted += "\n<i>(continued in next message...)</i>"
 
-        await send_safe_message(context, chat_id, formatted, parse_mode="HTML")
+        await send_safe_message(
+            context, chat_id, formatted, parse_mode="HTML", message_thread_id=thread_id
+        )
         current_chunk = []
         current_len = 0
 

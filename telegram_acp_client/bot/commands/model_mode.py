@@ -4,9 +4,11 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from telegram_acp_client.bot.auth import authorized_only
-from telegram_acp_client.bot.messaging import safe_reply
+from telegram_acp_client.bot.callback_router import router
+from telegram_acp_client.bot.messaging import safe_reply, safe_answer, safe_edit_reply_markup
 from telegram_acp_client.services.acp_service import acp_service
 from telegram_acp_client.services.db_service import db_service
+from telegram_acp_client.bot.threads import get_current_session_id
 from telegram_acp_client.bot.registry import register_command
 from telegram_acp_client.bot.formatting import escape_markdown
 
@@ -20,7 +22,7 @@ def get_active_session(context: ContextTypes.DEFAULT_TYPE, sid: int):
 @register_command("models", "List available models", category="Agent Configuration")
 @authorized_only
 async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
+    sid = await get_current_session_id(update, context)
     session = get_active_session(context, sid)
     if not session:
         await safe_reply(update, "No active session to list models for.")
@@ -65,7 +67,7 @@ async def switch_model_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     target_model = context.args[0]
-    sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
+    sid = await get_current_session_id(update, context)
     session = get_active_session(context, sid)
 
     if not session:
@@ -84,7 +86,7 @@ async def switch_model_command(update: Update, context: ContextTypes.DEFAULT_TYP
 @register_command("modes", "List available modes", category="Agent Configuration")
 @authorized_only
 async def modes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
+    sid = await get_current_session_id(update, context)
     session = get_active_session(context, sid)
     if not session:
         await safe_reply(update, "No active session to list modes for.")
@@ -116,7 +118,7 @@ async def switch_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     target_mode = context.args[0]
-    sid = context.user_data.get("current_session_id") or await db_service.get_last_session_id(update.effective_chat.id)
+    sid = await get_current_session_id(update, context)
     session = get_active_session(context, sid)
 
     if not session:
@@ -131,3 +133,52 @@ async def switch_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.exception("Failed to switch mode via command")
         await safe_reply(update, f"❌ Error switching mode: {e}")
+
+@router.register("set_model")
+async def on_set_model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, opt_id):
+    query = update.callback_query
+    if sid not in acp_service.active_processes:
+        await safe_answer(query, "Session not active.")
+        return
+    session = acp_service.active_processes[sid]
+    try:
+        await session.conn.set_session_model(
+            session_id=session.acp_session.session_id, model_id=opt_id
+        )
+        session.acp_session.models.current_model_id = opt_id
+        await safe_answer(query, f"Model switched to {opt_id}")
+    except Exception as e:
+        logger.exception("Failed to switch model")
+        await safe_answer(query, f"Error switching model: {e}", show_alert=True)
+
+@router.register("set_mode")
+async def on_set_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, opt_id):
+    query = update.callback_query
+    if sid not in acp_service.active_processes:
+        await safe_answer(query, "Session not active.")
+        return
+    session = acp_service.active_processes[sid]
+    try:
+        await session.conn.set_session_mode(
+            session_id=session.acp_session.session_id, mode_id=opt_id
+        )
+        session.acp_session.modes.current_mode_id = opt_id
+        modes = session.acp_session.modes
+        keyboard = []
+        for mode in modes.available_modes:
+            mode_id = mode.id if hasattr(mode, "id") else mode
+            mode_name = mode.name if hasattr(mode, "name") else str(mode)
+            status = "✅" if mode_id == modes.current_mode_id else "⚪"
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"{status} {mode_name}",
+                        callback_data=("set_mode", sid, mode_id),
+                    )
+                ]
+            )
+        await safe_edit_reply_markup(query, InlineKeyboardMarkup(keyboard))
+        await safe_answer(query, f"Mode switched to {opt_id}")
+    except Exception as e:
+        logger.exception("Failed to switch mode")
+        await safe_answer(query, f"Error switching mode: {e}", show_alert=True)

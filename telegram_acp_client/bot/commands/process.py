@@ -10,6 +10,7 @@ from telegram_acp_client.bot.messaging import (
 from telegram_acp_client.services.db_service import db_service
 from telegram_acp_client.services.terminal_service import terminal_service
 from telegram_acp_client.bot.registry import register_command
+from telegram_acp_client.bot.threads import get_current_session_id, extract_thread_id
 
 
 @register_command("shell", "Run a shell command", usage="<command>", category="Local Navigation")
@@ -19,7 +20,7 @@ async def shell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, "Usage: /shell <command>")
         return
 
-    sid = context.user_data.get("current_session_id")
+    sid = await get_current_session_id(update, context)
     if not sid:
         await safe_reply(update, "Select a session first via /sessions.")
         return
@@ -29,9 +30,10 @@ async def shell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cmd = " ".join(context.args)
 
     chat_id = update.effective_chat.id
+    thread_id = extract_thread_id(update)
 
     async def send_log(log_msg):
-        await send_safe_message(context, chat_id, log_msg, parse_mode="Markdown")
+        await send_safe_message(context, chat_id, log_msg, parse_mode="Markdown", message_thread_id=thread_id)
 
     async with typing_action(context, chat_id):
         task_id = await terminal_service.run_shell(chat_id, cmd, cwd, send_log, session_id=sid)
