@@ -17,10 +17,6 @@ class InteractionEntity:
         """Merges update into state. Returns True if state actually changed."""
         return False
 
-    def get_display_text(self) -> str:
-        """Returns the formatted text for display in Telegram."""
-        return f"*{self.kind.title()}:* {self.entity_id}"
-
 class TextEntity(InteractionEntity):
     def __init__(self, entity_id: str, kind: str, role: str, prefix: str = ""):
         super().__init__(entity_id, kind)
@@ -33,9 +29,6 @@ class TextEntity(InteractionEntity):
             return False
         self.text += text_chunk
         return True
-
-    def get_display_text(self) -> str:
-        return self.prefix + self.text
 
 class ToolEntity(InteractionEntity):
     def __init__(self, entity_id: str, kind: str):
@@ -97,11 +90,6 @@ class ToolEntity(InteractionEntity):
 
         return changed
 
-    def get_display_text(self) -> str:
-        # Note: Actual formatting (emojis, etc.) is handled in agent.py 
-        # using the format_tool_title logic, but we can provide a default here
-        return f"🔧 *Tool:* {self.title} ({self.status})"
-
 class PlanEntity(InteractionEntity):
     def __init__(self, entity_id: str):
         super().__init__(entity_id, "plan")
@@ -110,12 +98,6 @@ class PlanEntity(InteractionEntity):
     def update(self, update: Any) -> bool:
         self.entries = getattr(update, "entries", [])
         return True
-
-    def get_display_text(self) -> str:
-        if not self.entries:
-            return "📋 *Plan:* (empty)"
-        lines = [f"- [{e.status}] {e.content}" for e in self.entries]
-        return "📋 *New Plan:*\n" + "\n".join(lines)
 
 class ModeEntity(InteractionEntity):
     def __init__(self, entity_id: str):
@@ -128,9 +110,6 @@ class ModeEntity(InteractionEntity):
             self.current_mode = mode
             return True
         return False
-
-    def get_display_text(self) -> str:
-        return f"⚙️ *Mode Switched:* `{self.current_mode}`"
 
 class UsageEntity(InteractionEntity):
     def __init__(self, entity_id: str):
@@ -145,6 +124,3 @@ class UsageEntity(InteractionEntity):
         self.prompt_tokens = usage.get("prompt_tokens", self.prompt_tokens)
         self.completion_tokens = usage.get("completion_tokens", self.completion_tokens)
         return True
-
-    def get_display_text(self) -> str:
-        return f"📊 *Token Usage:* {self.total_tokens} (Prompt: {self.prompt_tokens}, Completion: {self.completion_tokens})"

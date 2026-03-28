@@ -1,53 +1,22 @@
 import logging
-import asyncio
 from typing import Any, Dict, List, Optional
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from telegram.ext import ContextTypes
 
-from telegram_acp_client.bot.messaging import safe_edit, send_safe_message, safe_api_call
+from telegram_acp_client.bot.callback_router import router
+from telegram_acp_client.bot.messaging import safe_edit, safe_answer
 from telegram_acp_client.bot.formatting import escape_markdown
-from telegram_acp_client.services.entities import InteractionEntity, TextEntity, ToolEntity, PlanEntity
-from telegram_acp_client.bot.streamer import MessageStreamer
+from telegram_acp_client.services.acp_service import acp_service
+
+# Import nodes
+from telegram_acp_client.bot.nodes.base import InteractionNode
+from telegram_acp_client.bot.nodes.text import TextNode
+from telegram_acp_client.bot.nodes.tool import ToolNode
+from telegram_acp_client.bot.nodes.plan import PlanNode
+from telegram_acp_client.bot.nodes.mode import ModeNode
+from telegram_acp_client.bot.nodes.usage import UsageNode
 
 logger = logging.getLogger(__name__)
-
-class EntityRenderer:
-    """Base class for rendering an InteractionEntity to Telegram message bubbles."""
-    def __init__(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, session_id: int, entity: InteractionEntity):
-        self.context = context
-        self.chat_id = chat_id
-        self.session_id = session_id
-        self.entity = entity
-        self.messages = [] # List of Telegram Message objects
-
-    async def render(self):
-        """Refreshes the UI for this entity."""
-        pass
-
-    async def finalize(self):
-        """Called when the entity is completed/finished."""
-        pass
-
-class TextRenderer(EntityRenderer):
-    """Renders streaming text (messages or thoughts) using multiple bubbles if needed."""
-    def __init__(self, context, chat_id, session_id, entity: TextEntity):
-        super().__init__(context, chat_id, session_id, entity)
-        self.streamer = MessageStreamer(
-            context, chat_id, entity.entity_id,
-            prefix=entity.prefix, 
-            role=entity.role
-        )
-
-    async def render(self):
-        if not self.streamer._updater_task:
-            await self.streamer.start()
-        
-        # Use the streamer's own logic to handle buffer updates and initial message sends
-        # This ensures we don't bypass the chunking or the edit rate-limiting
-        await self.streamer.update_buffer(self.entity.get_display_text())
-
-    async def finalize(self):
-        await self.streamer.close()
 
 def format_interaction_title(title: str, ri: dict, kind: str) -> str:
     """Shared helper to format tool/interaction titles with paths and commands."""
@@ -67,124 +36,51 @@ def format_interaction_title(title: str, ri: dict, kind: str) -> str:
     
     return safe_title
 
-class ToolRenderer(EntityRenderer):
-    """Renders a tool call's progress and results in a single, evolving bubble."""
+def create_node(
+    context: ContextTypes.DEFAULT_TYPE, 
+    chat_id: int, 
+    session_id: int, 
+    entity_id: str, 
+    kind: str, 
+    thread_id: Optional[int] = None, 
+    **kwargs
+) -> InteractionNode:
+    """Factory to create the appropriate Node for an interaction kind."""
+    if kind in ["message", "thought"]:
+        role = kwargs.get("role", "agent")
+        prefix = kwargs.get("prefix", "")
+        streamer = kwargs.get("streamer")
+        return TextNode(context, chat_id, session_id, entity_id, thread_id, role, prefix, streamer=streamer)
     
-    KIND_EMOJIS = {
-        "read": "📖", "edit": "📝", "delete": "🗑️", 
-        "move": "📦", "search": "🔍", "execute": "⚙️", 
-        "think": "💭", "fetch": "🌐", "question": "❓", "other": "🔧"
-    }
+    if kind == "tool":
+        return ToolNode(context, chat_id, session_id, entity_id, thread_id)
+    
+    if kind == "plan":
+        return PlanNode(context, chat_id, session_id, entity_id, thread_id)
+    
+    if kind == "mode":
+        return ModeNode(context, chat_id, session_id, entity_id, thread_id)
+    
+    if kind == "usage":
+        return UsageNode(context, chat_id, session_id, entity_id, thread_id)
+    
+    # Fallback to base node
+    node = InteractionNode(context, chat_id, session_id, entity_id, thread_id)
+    node.kind = kind # Ensure kind is set for fallback display
+    return node
 
-    async def render(self):
-        # 1. Format the status line
-        status_emoji = self.KIND_EMOJIS.get(self.entity.tool_kind, "🔧")
-        status_text = self.entity.status.replace("_", " ").title()
-        
-        # Progress indicator
-        if self.entity.status in ["pending", "in_progress"]:
-            progress_prefix = "⏳ "
-        elif self.entity.status == "completed":
-            progress_prefix = "✅ "
-        elif self.entity.status == "failed":
-            progress_prefix = "❌ "
+@router.register("more_output")
+async def on_more_output_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, tc_id):
+    query = update.callback_query
+    session = acp_service.active_processes.get(sid)
+    if session:
+        # In the new architecture, session.nodes stores the UI-aware objects
+        node = session.nodes.get(tc_id)
+        if node and isinstance(node, ToolNode):
+            node.data["current_page"] = node.data.get("current_page", 1) + 1
+            await node.render()
+            await safe_answer(query, "Loading more output...")
         else:
-            progress_prefix = ""
-
-        # Use shared formatter for the title part
-        safe_title = format_interaction_title(
-            self.entity.title, 
-            self.entity.raw_input, 
-            self.entity.tool_kind
-        )
-        
-        # Special formatting for questions
-        if self.entity.tool_kind == "question":
-            text = f"❓ *Agent Question:* {safe_title}"
-        else:
-            text = f"{progress_prefix}{status_emoji} *Tool {status_text}* (`{self.entity.entity_id}`): {safe_title}"
-
-        # 2. Add results if completed
-        keyboard = []
-        if self.entity.status == "completed" and self.entity.content:
-            text += "\n"
-            full_buffer = ""
-            for item in self.entity.content:
-                inner_content = getattr(item, "content", None) or (item.get("content") if isinstance(item, dict) else None)
-                if inner_content:
-                    extracted = self._robust_extract(inner_content)
-                    if extracted: full_buffer += f"\n{extracted}"
-
-            # Paging logic for long output
-            all_lines = full_buffer.strip().splitlines()
-            limit = 30
-            page_size = self.entity.data.get("page_size", 20)
-            current_page = self.entity.data.get("current_page", 1)
-            visible_count = current_page * page_size
-
-            if len(all_lines) > limit:
-                display_lines = all_lines[:visible_count]
-                has_more = len(all_lines) > visible_count
-                
-                text += "\n" + "\n".join(display_lines)
-                text += f"\n\n_(Showing {min(visible_count, len(all_lines))} of {len(all_lines)} lines)_"
-                
-                if has_more:
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            "➕ More Output", 
-                            callback_data=("more_output", self.session_id, self.entity.entity_id)
-                        )
-                    ])
-            else:
-                text += full_buffer
-
-        # 3. Update or send message
-        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        if not self.messages:
-            msg = await send_safe_message(self.context, self.chat_id, text, reply_markup=reply_markup)
-            if msg: self.messages.append(msg)
-        else:
-            await safe_edit(self.messages[0], text, reply_markup=reply_markup)
-
-    def _robust_extract(self, content: Any) -> str | None:
-        """Robustly extract text from any ContentBlock kind."""
-        if isinstance(content, str): return content
-        
-        c_type = getattr(content, "type", None) or (content.get("type") if isinstance(content, dict) else None)
-        
-        if c_type == "text":
-            return getattr(content, "text", None) or (content.get("text") if isinstance(content, dict) else None)
-        elif c_type == "image":
-            return "🖼️ _[Image]_"
-        elif c_type == "audio":
-            return "🎵 _[Audio]_"
-        elif c_type == "resource":
-            res = getattr(content, "resource", None) or (content.get("resource", {}) if isinstance(content, dict) else {})
-            uri = getattr(res, "uri", "unknown") or (res.get("uri", "unknown") if isinstance(res, dict) else "unknown")
-            return f"📄 _[Resource: {uri}]_"
-        
-        # Fallback
-        if hasattr(content, "text"): return content.text
-        if isinstance(content, dict) and "text" in content: return content.get("text")
-        return None
-
-class PlanRenderer(EntityRenderer):
-    """Renders the high-level agent plan."""
-    async def render(self):
-        text = self.entity.get_display_text()
-        if not self.messages:
-            msg = await send_safe_message(self.context, self.chat_id, text)
-            if msg: self.messages.append(msg)
-        else:
-            await safe_edit(self.messages[0], text)
-
-def create_renderer(context, chat_id, session_id, entity: InteractionEntity) -> EntityRenderer:
-    """Factory to create the appropriate renderer for an entity kind."""
-    if isinstance(entity, TextEntity):
-        return TextRenderer(context, chat_id, session_id, entity)
-    if isinstance(entity, ToolEntity):
-        return ToolRenderer(context, chat_id, session_id, entity)
-    if isinstance(entity, PlanEntity):
-        return PlanRenderer(context, chat_id, session_id, entity)
-    return EntityRenderer(context, chat_id, session_id, entity)
+            await safe_answer(query, "Tool output not found.", show_alert=True)
+    else:
+        await safe_answer(query, "Session not active.", show_alert=True)

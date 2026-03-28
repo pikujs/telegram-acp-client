@@ -34,7 +34,12 @@ async def post_init(application):
     await db_service.init_db()
 
     commands = get_bot_commands()
-    await application.bot.set_my_commands(commands)
+    logging.info(f"Setting {len(commands)} bot commands...")
+    try:
+        await application.bot.set_my_commands(commands)
+        logging.info("Successfully set bot commands.")
+    except Exception as e:
+        logging.error(f"Failed to set bot commands: {e}")
 
 
 async def error_handler(update, context):
@@ -72,7 +77,8 @@ def run_bot(config_file: str | None = None, bot_name: str | None = None):
         sys.exit(1)
 
     # 3. Deferred imports to ensure settings are loaded first
-    from telegram_acp_client.bot.agent import handle_callback, handle_message
+    from telegram_acp_client.bot.agent import handle_message
+    from telegram_acp_client.bot.callback_router import router
     from telegram_acp_client.bot.registry import COMMANDS
 
     import telegram_acp_client.bot.commands.common
@@ -93,7 +99,7 @@ def run_bot(config_file: str | None = None, bot_name: str | None = None):
     for cmd_info in COMMANDS.values():
         app.add_handler(CommandHandler(cmd_info.name, cmd_info.handler))
 
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CallbackQueryHandler(router.handle))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()

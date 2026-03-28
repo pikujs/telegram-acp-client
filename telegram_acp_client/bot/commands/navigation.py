@@ -9,12 +9,13 @@ from telegram_acp_client.bot.messaging import safe_reply, typing_action
 from telegram_acp_client.services.db_service import db_service
 from telegram_acp_client.services.terminal_service import terminal_service
 from telegram_acp_client.bot.registry import register_command
+from telegram_acp_client.bot.threads import get_current_session_id
 
 
 @register_command("ls", "List files in current directory", category="Local Navigation")
 @authorized_only
 async def ls_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sid = context.user_data.get("current_session_id")
+    sid = await get_current_session_id(update, context)
     if not sid:
         await safe_reply(update, "Select a session first via /sessions.")
         return
@@ -40,7 +41,7 @@ async def cd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, "Usage: /cd <directory>")
         return
 
-    sid = context.user_data.get("current_session_id")
+    sid = await get_current_session_id(update, context)
     if not sid:
         await safe_reply(update, "Select a session first.")
         return
@@ -66,7 +67,7 @@ async def cat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, "Usage: /cat <filename>")
         return
 
-    sid = context.user_data.get("current_session_id")
+    sid = await get_current_session_id(update, context)
     if not sid:
         await safe_reply(update, "Select a session first.")
         return

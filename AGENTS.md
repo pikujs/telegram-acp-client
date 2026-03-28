@@ -84,6 +84,9 @@ For detailed information on the communication protocol used between the bot and 
 ### 7. Linting & Formatting
 - **Mandate:** There is no need to actively run `ruff check` or `ruff format` during automated agent workflows unless explicitly requested by the user. Rely on the IDE or pre-commit hooks (if set up) for general linting, or simply let the user run it later. This saves context and time.
 
+### 8. Python Environment (UV Usage)
+- **Mandate:** ALWAYS use `uv run` for executing python commands or scripts within this repository. Do not use plain `python` or `python3` commands.
+
 ## 🔄 Core Workflows
 
 ### Creating a New Command
@@ -95,11 +98,11 @@ For detailed information on the communication protocol used between the bot and 
 
 ### Agent Tool Approval Flow
 1. Agent requests permission -> `acp_service.request_permission` is called.
-2. Bot creates an `asyncio.Future` and registers it in `session.permission_registry`.
-3. Bot sends buttons to the user (via `on_permission`).
-4. User clicks button -> `handle_callback` is triggered.
-5. `handle_callback` looks up the future, sets the result (or cancels the task), and updates the message.
-6. The `acp_service` receives the result and returns it to the agent.
+2. Bot creates a `PermissionNode` and registers it in `session.permission_nodes`.
+3. `PermissionNode.render()` sends buttons to the user (via `on_permission`).
+4. User clicks button -> `on_perm_callback` is triggered.
+5. `PermissionNode.handle_click()` processes the choice, sets the future, and updates the message.
+6. The `acp_service` receives the result from the awaited future and returns it to the agent.
 
 ## 🛠 Local Development Setup
 

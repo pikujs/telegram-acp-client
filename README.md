@@ -11,6 +11,8 @@ This project allows you to deploy and manage multiple independent Telegram bots,
 ## 🌟 Key Features
 
 - **Multi-Tenant Management:** Deploy multiple bots from a single installation. Each bot has its own config, token, and workspace history.
+- **Threaded Sessions:** Full support for Telegram Forum Topics. Start independent agent sessions in different threads within the same chat.
+- **Real-time AI Streaming:** Leverages the native `sendMessageDraft` API (Bot API 9.3+) for fluid, animated text updates with no "edited" label.
 - **Full ACP Support:** Handles handshakes, tool requests, and lifecycle management via `stdio`.
 - **Human-in-the-Loop:** 
     - **Visual Diffs:** File edits are shown as unified diffs.
@@ -124,14 +126,54 @@ Located in each bot's config directory:
     - `config.py`: Dynamic settings loading for multi-bot support.
 
 ## 🤖 In-Bot Commands
+
+#### Session Management
+| Command | Description | Usage |
+| :--- | :--- | :--- |
+| `/status` | Show current session status. | |
+| `/new` | Create a new agent session. | `/new <name> <path>` |
+| `/sessions` | List active agent sessions. | |
+| `/restart` | Reset the agent in the current workspace. | |
+| `/stop` | Cancel the current agent task. | |
+| `/historyInject` | Inject context history. | `/historyInject [n]` |
+| `/shutdown` | Stop agent and all related processes. | |
+| `/delete` | Export logs and delete session. | `/delete [name]` |
+| `/detachSession` | Unlink a session from its thread. | |
+
+#### Agent Configuration
+| Command | Description | Usage |
+| :--- | :--- | :--- |
+| `/models` | List available AI models. | |
+| `/model` | Switch current AI model. | `/model <id>` |
+| `/modes` | List available agent modes. | |
+| `/mode` | Switch current agent mode. | `/mode <id>` |
+
+#### Local Navigation & Tools
+| Command | Description | Usage |
+| :--- | :--- | :--- |
+| `/ls` | List files in current directory. | |
+| `/cd` | Change current directory. | `/cd <path>` |
+| `/cat` | View file contents. | `/cat <file>` |
+| `/shell` | Run a background process. | `/shell <cmd>` |
+| `/ps` | List background processes. | |
+| `/logs` | View logs of a process. | `/logs <id> [n]` |
+| `/kill` | Kill a background process. | `/kill <id>` |
+
+#### General
 | Command | Description |
 | :--- | :--- |
-| `/start` / `/help` | Show help message. |
-| `/new <name> <path>` | Create/Open a workspace session. |
-| `/sessions` | List and switch workspaces. |
-| `/restart` | Reset the agent in the current workspace. |
-| `/stop` | Cancel the current agent task. |
-| `/historyInject <n>` | Inject last `n` messages into context. |
-| `/ls` / `/cd` | Navigate local files. |
-| `/shell <cmd>` | Run a background process. |
-| `/ps` / `/logs` / `/kill` | Manage background processes. |
+| `/start` / `/help` | Show main menu and documentation. |
+
+---
+
+## 🧵 Threaded Sessions (Telegram Topics)
+
+`telegram-acp-client` is optimized for **Telegram Forum Groups**. This allows you to run multiple independent AI sessions within a single group, where each Topic (Thread) is hard-linked to a specific workspace.
+
+### How to Enable Topics:
+1. Open your Telegram Group settings.
+2. Go to **Edit** -> **Topics**.
+3. Toggle **Topics** to **ON**.
+4. Now you can create a new Topic for each project and use `/new` inside it.
+
+**Note:** Only one active session is allowed per thread to prevent context mixing. Use `/detachSession` if you need to move a session to a different thread.
