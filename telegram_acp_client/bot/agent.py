@@ -34,7 +34,6 @@ from telegram_acp_client.bot.ui import (
 )
 from telegram_acp_client.services.acp_service import TelegramGeminiClient, acp_service
 from telegram_acp_client.services.db_service import db_service
-from telegram_acp_client.services.entities import ToolEntity
 from telegram_acp_client.services.terminal_service import terminal_service
 from telegram_acp_client.bot.threads import (
     extract_thread_id,

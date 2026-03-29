@@ -24,20 +24,10 @@ class ToolNode(InteractionNode):
         self.raw_input = {}
         self.content = []
         self.data["current_page"] = 1
-        self.data["page_size"] = 20
+        self.data["page_size"] = 7
 
     def update(self, update: Any) -> bool:
         changed = False
-        # Sync from legacy ToolEntity if needed
-        if hasattr(update, "tool_kind"):
-            if self.title != update.title or self.status != update.status or self.tool_kind != update.tool_kind:
-                self.title = update.title
-                self.status = update.status
-                self.tool_kind = update.tool_kind
-                self.raw_input = update.raw_input
-                self.content = update.content
-                return True
-            return False
 
         # Update simple fields from raw update
         for field in ["title", "status"]:
@@ -114,8 +104,8 @@ class ToolNode(InteractionNode):
 
             # Paging logic
             all_lines = full_buffer.strip().splitlines()
-            limit = 30
-            page_size = self.data.get("page_size", 20)
+            limit = 7
+            page_size = self.data.get("page_size", 7)
             current_page = self.data.get("current_page", 1)
             visible_count = current_page * page_size
 

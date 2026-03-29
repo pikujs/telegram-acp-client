@@ -126,7 +126,7 @@ class TerminalService:
                 return False
         return False
 
-    def get_logs(self, task_id: str, lines: int = 50) -> list[str] | None:
+    def get_logs(self, task_id: str, lines: int = 7) -> list[str] | None:
         task = self._tasks.get(task_id)
         if task:
             return task.get_last_logs(lines)

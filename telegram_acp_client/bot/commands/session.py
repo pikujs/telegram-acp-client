@@ -55,14 +55,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     session = acp_service.active_processes[sid]
     is_busy = "⏳ Busy" if session.is_busy else "🟢 Idle"
-    entities_count = len(session.entities)
+    nodes_count = len(session.nodes)
     
-    active_tools = [e for e in session.entities.values() if getattr(e, "kind", None) == "tool" and getattr(e, "status", None) in ["in_progress", "pending"]]
+    active_tools = [n for n in session.nodes.values() if getattr(n, "kind", None) == "tool" and getattr(n, "status", None) in ["in_progress", "pending"]]
     
     status_msg = f"🟢 *Session:* `{name}`\n"
     status_msg += f"*Path:* `{path}`\n"
     status_msg += f"*Status:* {is_busy}\n"
-    status_msg += f"*Active Entities:* {entities_count}\n"
+    status_msg += f"*Active Interactions:* {nodes_count}\n"
     
     if active_tools:
         status_msg += "\n*Active Tools:*\n"
