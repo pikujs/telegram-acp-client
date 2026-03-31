@@ -19,6 +19,45 @@ def get_active_session(context: ContextTypes.DEFAULT_TYPE, sid: int):
         return None
     return acp_service.active_processes[sid]
 
+def build_models_keyboard(sid: int, available_models: list, current_model_id: str, page: int = 0) -> tuple[list, str]:
+    """Builds an inline keyboard for model selection with pagination."""
+    items_per_page = 5
+    total_count = len(available_models)
+    total_pages = max(1, (total_count + items_per_page - 1) // items_per_page)
+    
+    if page < 0:
+        page = 0
+    if page >= total_pages:
+        page = total_pages - 1
+    
+    keyboard = []
+    text = "🤖 *Available Models*\n\n"
+    
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    page_models = available_models[start_idx:end_idx]
+    
+    for m in page_models:
+        model_id = m.model_id if hasattr(m, 'model_id') else m
+        model_name = m.name if hasattr(m, 'name') else str(m)
+        status = "✅" if model_id == current_model_id else "⚪"
+        text += f"{status} `{escape_markdown(model_name)}`\n"
+        keyboard.append([InlineKeyboardButton(f"{status} {model_name}", callback_data=("set_model", sid, model_id, page))])
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=("more_models", sid, page - 1)))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ More", callback_data=("more_models", sid, page + 1)))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    text += f"\n_Page {page + 1}/{total_pages} ({total_count} models)_"
+    
+    return keyboard, text
+
 @register_command("models", "List available models", category="Agent Configuration")
 @authorized_only
 async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,29 +73,11 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     current = models.current_model_id
-    keyboard = []
-    text = "🤖 *Available Models*\n\n"
-
     available_models = models.available_models
-    total_count = len(available_models)
     
-    # If there are too many models, only return the top 5
-    display_models = available_models
-    is_truncated = False
-    if total_count > 5:
-        display_models = available_models[:5]
-        is_truncated = True
-
-    for m in display_models:
-        model_id = m.model_id if hasattr(m, 'model_id') else m
-        model_name = m.name if hasattr(m, 'name') else str(m)
-        status = "✅" if model_id == current else "⚪"
-        text += f"{status} `{escape_markdown(model_name)}`\n"
-        keyboard.append([InlineKeyboardButton(f"{status} {model_name}", callback_data=("set_model", sid, model_id))])
-
-    if is_truncated:
-        text += f"\n_(Showing 5 of {total_count} models. Use `/model <id>` to set others.)_"
-
+    # Build keyboard with pagination
+    keyboard, text = build_models_keyboard(sid, available_models, current, 0)
+    
     await safe_reply(update, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 @register_command("model", "Switch current model", usage="<model_id>", category="Agent Configuration")
@@ -135,7 +156,7 @@ async def switch_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await safe_reply(update, f"❌ Error switching mode: {e}")
 
 @router.register("set_model")
-async def on_set_model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, opt_id):
+async def on_set_model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, opt_id, page: int = 0):
     query = update.callback_query
     if sid not in acp_service.active_processes:
         await safe_answer(query, "Session not active.")
@@ -146,10 +167,28 @@ async def on_set_model_callback(update: Update, context: ContextTypes.DEFAULT_TY
             session_id=session.acp_session.session_id, model_id=opt_id
         )
         session.acp_session.models.current_model_id = opt_id
+        # Refresh keyboard with updated model and same page
+        keyboard, text = build_models_keyboard(sid, session.acp_session.models.available_models, opt_id, int(page))
+        await safe_edit(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         await safe_answer(query, f"Model switched to {opt_id}")
     except Exception as e:
         logger.exception("Failed to switch model")
         await safe_answer(query, f"Error switching model: {e}", show_alert=True)
+
+@router.register("more_models")
+async def on_more_models_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, page: int):
+    query = update.callback_query
+    if sid not in acp_service.active_processes:
+        await safe_answer(query, "Session not active.")
+        return
+    session = acp_service.active_processes[sid]
+    models = session.acp_session.models
+    if not models or not models.available_models:
+        await safe_answer(query, "No models available.", show_alert=True)
+        return
+    
+    keyboard, text = build_models_keyboard(sid, models.available_models, models.current_model_id, int(page))
+    await safe_edit(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 @router.register("set_mode")
 async def on_set_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, sid, opt_id):

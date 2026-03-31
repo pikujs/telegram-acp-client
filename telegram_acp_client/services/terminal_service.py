@@ -80,8 +80,10 @@ class TerminalService:
     async def run_shell(self, chat_id: int, command: str, cwd: str, on_log: Callable[[str], Any], session_id: int | None = None) -> str:
         task_id = f"job-{len(self._tasks) + 1}"
 
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        # Wrap the command in a login shell to ensure the user's environment is loaded
+        wrapped_command = ["/bin/bash", "-l", "-c", command]
+        proc = await asyncio.create_subprocess_exec(
+            *wrapped_command,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
@@ -126,7 +128,7 @@ class TerminalService:
                 return False
         return False
 
-    def get_logs(self, task_id: str, lines: int = 50) -> list[str] | None:
+    def get_logs(self, task_id: str, lines: int = 7) -> list[str] | None:
         task = self._tasks.get(task_id)
         if task:
             return task.get_last_logs(lines)

@@ -34,7 +34,6 @@ from telegram_acp_client.bot.ui import (
 )
 from telegram_acp_client.services.acp_service import TelegramGeminiClient, acp_service
 from telegram_acp_client.services.db_service import db_service
-from telegram_acp_client.services.entities import ToolEntity
 from telegram_acp_client.services.terminal_service import terminal_service
 from telegram_acp_client.bot.threads import (
     extract_thread_id,
@@ -274,10 +273,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_name = update.message.text.strip()
         context.user_data[pending_name_key] = session_name
         context.user_data[pending_path_key] = ""
-        await safe_reply(
-            update,
-            f"📁 Session name: `{escape_markdown(session_name)}`\n\nEnter the path for the session (e.g., `/path/to/project`):",
-        )
+
+        from telegram_acp_client.bot.dir_browser import build_directory_browser_keyboard
+        from telegram_acp_client.config import settings
+
+        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        text, keyboard = build_directory_browser_keyboard(start_path, session_name, 0)
+        await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return
 
     if (

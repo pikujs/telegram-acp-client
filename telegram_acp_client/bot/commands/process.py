@@ -76,7 +76,7 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     task_id = context.args[0]
-    num_lines = 50
+    num_lines = 7
     if len(context.args) > 1:
         try:
             num_lines = int(context.args[1])
