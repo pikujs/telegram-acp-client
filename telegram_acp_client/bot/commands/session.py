@@ -76,18 +76,25 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @register_command(
     "new",
     "Create a new agent session",
-    usage="<name> <absolute_path>",
+    usage="<name> [absolute_path]",
     category="Session Management",
 )
 @authorized_only
 async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await safe_reply(update, "Usage: /new <name> <absolute_path>")
-        return
-    name, path = context.args[0], os.path.abspath(context.args[1])
-
     thread_id = extract_thread_id(update)
     chat_id = update.effective_chat.id
+
+    if len(context.args) < 1:
+        # Interactive flow: ask for name
+        pending_name_key = f"pending_new_session_{thread_id}_name"
+        pending_path_key = f"pending_new_session_{thread_id}_path"
+        context.user_data[pending_name_key] = True
+        context.user_data[pending_path_key] = None
+        await safe_reply(update, "📝 *Create New Session*\n\nPlease provide a session name:", parse_mode="Markdown")
+        return
+    
+    name = context.args[0]
+    path = os.path.abspath(context.args[1]) if len(context.args) > 1 else None
 
     if thread_id:
         existing_sid = await get_current_session_id(update, context)
@@ -101,8 +108,12 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
     else:
         # User is in General chat, prompt them to pick a topic via SwitchInlineQueryChosenChat
+        switch_query = f" /new {name}"
+        if path:
+            switch_query += f" {path}"
+            
         switch_config = SwitchInlineQueryChosenChat(
-            query=f" /new {name} {path}",
+            query=switch_query,
             allow_group_chats=True,
             allow_user_chats=False,
             allow_bot_chats=False,
@@ -121,6 +132,21 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Sessions should be created inside topics to keep them organized. Click the button below to pick a topic and send the command there:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+        return
+
+    if not path:
+        from telegram_acp_client.bot.dir_browser import build_directory_browser_keyboard
+        from telegram_acp_client.config import settings
+
+        # Set pending state so user can also type path manually
+        pending_name_key = f"pending_new_session_{thread_id}_name"
+        pending_path_key = f"pending_new_session_{thread_id}_path"
+        context.user_data[pending_name_key] = name
+        context.user_data[pending_path_key] = ""
+
+        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        text, keyboard = build_directory_browser_keyboard(start_path, name, 0)
+        await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return
 
     os.makedirs(path, exist_ok=True)

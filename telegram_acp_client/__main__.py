@@ -86,6 +86,7 @@ def run_bot(config_file: str | None = None, bot_name: str | None = None):
     import telegram_acp_client.bot.commands.navigation
     import telegram_acp_client.bot.commands.process
     import telegram_acp_client.bot.commands.session
+    import telegram_acp_client.bot.dir_browser
 
     app = (
         ApplicationBuilder()

@@ -1,6 +1,7 @@
 import logging
+
 from typing import Any, Dict, List, Optional
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from telegram_acp_client.bot.callback_router import router
@@ -84,3 +85,4 @@ async def on_more_output_callback(update: Update, context: ContextTypes.DEFAULT_
             await safe_answer(query, "Tool output not found.", show_alert=True)
     else:
         await safe_answer(query, "Session not active.", show_alert=True)
+
