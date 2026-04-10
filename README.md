@@ -102,6 +102,7 @@ Located in each bot's config directory:
     "telegram_token": "YOUR_BOT_TOKEN",
     "allowed_user_ids": [12345678],
     "agent_command": "gemini --experimental-acp",
+    "user_projects_dir": "/path/to/projects",
     "log_level": "INFO"
 }
 ```

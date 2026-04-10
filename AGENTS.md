@@ -140,6 +140,7 @@ Since interactive commands (like `uv run telegram-acp-client new`) hang when run
        "telegram_token": "YOUR_BOT_TOKEN",
        "allowed_user_ids": [12345678],
        "agent_command": "gemini --experimental-acp",
+       "user_projects_dir": "/home/user/projects",
        "log_level": "INFO"
    }
    ```

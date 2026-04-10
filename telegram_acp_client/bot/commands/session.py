@@ -144,7 +144,7 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data[pending_name_key] = name
         context.user_data[pending_path_key] = ""
 
-        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        start_path = settings.USER_PROJECTS_DIR or os.getcwd()
         text, keyboard = build_directory_browser_keyboard(start_path, name, 0)
         await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return

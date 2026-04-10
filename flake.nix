@@ -131,6 +131,12 @@
                 description = "Directory where the bot will store its database and logs.";
               };
 
+              userProjectsDir = mkOption {
+                type = types.str;
+                default = "";
+                description = "Starting directory for the session path browser.";
+              };
+
               user = mkOption {
                 type = types.str;
                 default = cfg.user;
@@ -187,6 +193,7 @@
                       "telegram_token": "$TOKEN",
                       "allowed_user_ids": ${builtins.toJSON instance.allowedUserIds},
                       "agent_command": "${instance.agentCommand}",
+                      "user_projects_dir": "${instance.userProjectsDir}",
                       "log_level": "${instance.logLevel}"
                     }
                     EOF

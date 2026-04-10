@@ -277,7 +277,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from telegram_acp_client.bot.dir_browser import build_directory_browser_keyboard
         from telegram_acp_client.config import settings
 
-        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        start_path = settings.USER_PROJECTS_DIR or os.getcwd()
         text, keyboard = build_directory_browser_keyboard(start_path, session_name, 0)
         await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return
