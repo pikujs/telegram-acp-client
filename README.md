@@ -100,8 +100,8 @@ Located in each bot's config directory:
 ```json
 {
     "telegram_token": "YOUR_BOT_TOKEN",
-    "allowed_users": ["your_username"],
-    "agent_command": "gemini-cli",
+    "allowed_user_ids": [12345678],
+    "agent_command": "gemini --experimental-acp",
     "log_level": "INFO"
 }
 ```

@@ -128,15 +128,15 @@ def cmd_new(args):
         return
 
     token = input("Enter Telegram Bot Token: ").strip()
-    users = input("Enter Allowed Usernames (comma separated): ").strip()
+    users = input("Enter Allowed User IDs (comma separated integers): ").strip()
     agent_cmd = (
-        input("Enter Agent Command [gemini-cli --experimental-acp]: ").strip()
-        or "gemini-cli --experimental-acp"
+        input("Enter Agent Command [gemini --experimental-acp]: ").strip()
+        or "gemini --experimental-acp"
     )
 
     config = {
         "telegram_token": token,
-        "allowed_users": [u.strip() for u in users.split(",") if u.strip()],
+        "allowed_user_ids": [int(u.strip()) for u in users.split(",") if u.strip().isdigit()],
         "agent_command": agent_cmd,
         "log_level": "INFO",
     }
