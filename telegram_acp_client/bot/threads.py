@@ -24,7 +24,7 @@ async def get_current_session_id(
     thread_id = extract_thread_id(update)
 
     # Check cache first
-    cache_key = f"current_session_id_{thread_id or 0}"
+    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
     if cache_key in context.user_data:
         return context.user_data[cache_key]
 
@@ -42,16 +42,18 @@ async def set_current_session_id(
     thread_id: int | None = None,
 ):
     """Sets the active session ID for the current chat and thread. Persists to DB."""
+    chat_id = update.effective_chat.id
     if thread_id is None:
         thread_id = extract_thread_id(update)
-    cache_key = f"current_session_id_{thread_id or 0}"
+    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
     context.user_data[cache_key] = session_id
-    await db_service.set_last_session(update.effective_chat.id, thread_id, session_id)
+    await db_service.set_last_session(chat_id, thread_id, session_id)
 
 
 def clear_current_session_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Clears the active session ID for the current chat and thread."""
+    chat_id = update.effective_chat.id
     thread_id = extract_thread_id(update)
-    cache_key = f"current_session_id_{thread_id or 0}"
+    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
     if cache_key in context.user_data:
         del context.user_data[cache_key]

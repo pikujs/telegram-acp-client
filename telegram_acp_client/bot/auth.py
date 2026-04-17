@@ -12,12 +12,13 @@ def authorized_only(func):
     """Decorator to restrict access to authorized users only."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        if not update.effective_user or not update.effective_user.username:
+        if not update.effective_user:
             return
 
-        username = update.effective_user.username
-        if username not in settings.ALLOWED_USERS:
-            logger.warning(f"Unauthorized access attempt by @{username}")
+        user_id = update.effective_user.id
+        if user_id not in settings.ALLOWED_USER_IDS:
+            username = update.effective_user.username or "Unknown"
+            logger.warning(f"Unauthorized access attempt by {username} ({user_id})")
             if update.message:
                 from telegram_acp_client.bot.messaging import safe_reply
                 await safe_reply(update, "⛔ You are not authorized to use this bot.")
@@ -31,10 +32,12 @@ def authorized_only(func):
 
 async def is_authorized(update) -> bool:
     """Check if the user is in the whitelist."""
-    username = update.effective_user.username
-    if username not in settings.ALLOWED_USERS:
-        logger.warning(f"Unauthorized access attempt by @{username}")
+    user_id = update.effective_user.id
+    if user_id not in settings.ALLOWED_USER_IDS:
+        username = update.effective_user.username or "Unknown"
+        logger.warning(f"Unauthorized access attempt by {username} ({user_id})")
         from telegram_acp_client.bot.messaging import safe_reply
         await safe_reply(update, "⛔ You are not authorized to use this bot.")
         return False
     return True
+

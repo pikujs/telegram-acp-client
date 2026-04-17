@@ -106,8 +106,8 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"⚠️ This topic is already hard-linked to session `{s_name}`.\nYou must delete it first or create a new topic.",
             )
             return
-    else:
-        # User is in General chat, prompt them to pick a topic via SwitchInlineQueryChosenChat
+    elif getattr(update.effective_chat, "is_forum", False):
+        # User is in General chat of a forum, prompt them to pick a topic via SwitchInlineQueryChosenChat
         switch_query = f" /new {name}"
         if path:
             switch_query += f" {path}"
@@ -144,7 +144,7 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data[pending_name_key] = name
         context.user_data[pending_path_key] = ""
 
-        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        start_path = settings.USER_PROJECTS_DIR or os.getcwd()
         text, keyboard = build_directory_browser_keyboard(start_path, name, 0)
         await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return

@@ -8,14 +8,14 @@ from platformdirs import user_config_dir, user_data_dir
 @dataclass
 class Settings:
     TELEGRAM_BOT_TOKEN: str = ""
-    ALLOWED_USERS: list[str] = field(default_factory=list)
-    AGENT_COMMAND: str = "gemini-cli --experimental-acp"
+    ALLOWED_USER_IDS: list[int] = field(default_factory=list)
+    AGENT_COMMAND: str = "gemini --experimental-acp"
     LOG_LEVEL: str = "INFO"
     SERVICE_MANAGER_TYPE: str = "shell"
     CONFIG_DIR: Path = Path.cwd()
     DATA_DIR: Path = Path.cwd()
     DATABASE_PATH: str = "database.db"
-    DEFAULT_SESSION_PATH: str = ""
+    USER_PROJECTS_DIR: str = ""
 
     def load(self, config_file: str | None = None, bot_name: str | None = None):
         # 1. Determine base directories
@@ -51,14 +51,14 @@ class Settings:
             try:
                 data = json.loads(target_config_file.read_text())
                 self.TELEGRAM_BOT_TOKEN = data.get("telegram_token", "")
-                self.ALLOWED_USERS = data.get("allowed_users", [])
+                self.ALLOWED_USER_IDS = data.get("allowed_user_ids", [])
                 self.AGENT_COMMAND = data.get(
-                    "agent_command", "gemini-cli --experimental-acp"
+                    "agent_command", "gemini --experimental-acp"
                 )
                 self.LOG_LEVEL = data.get("log_level", "INFO")
                 self.SERVICE_MANAGER_TYPE = data.get("service_manager_type", "shell")
-                self.DEFAULT_SESSION_PATH = data.get(
-                    "default_session_path", user_data_dir()
+                self.USER_PROJECTS_DIR = data.get(
+                    "user_projects_dir", user_data_dir()
                 )
             except Exception as e:
                 print(f"Error loading JSON config: {e}")

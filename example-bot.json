@@ -1,6 +1,7 @@
 {
     "telegram_token": "your_token_here",
-    "allowed_users": ["your_username", "another_username"],
+    "allowed_user_ids": [12345678],
     "agent_command": "gemini --experimental-acp",
+    "user_projects_dir": "/home/user/projects",
     "log_level": "INFO"
 }

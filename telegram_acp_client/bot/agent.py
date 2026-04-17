@@ -201,7 +201,6 @@ async def start_agent_service(update, context, db_id, path, thread_id=None):
 
     async with typing_action(context, chat_id):
         await acp_service.start_session(db_id, path, client)
-        context.user_data["current_session_id"] = db_id
 
         try:
             files = [f for f in os.listdir(path) if not f.startswith(".")]
@@ -277,7 +276,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from telegram_acp_client.bot.dir_browser import build_directory_browser_keyboard
         from telegram_acp_client.config import settings
 
-        start_path = settings.DEFAULT_SESSION_PATH or os.getcwd()
+        start_path = settings.USER_PROJECTS_DIR or os.getcwd()
         text, keyboard = build_directory_browser_keyboard(start_path, session_name, 0)
         await safe_reply(update, text, reply_markup=keyboard, parse_mode="Markdown")
         return
