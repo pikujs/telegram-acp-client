@@ -106,8 +106,8 @@ async def new_session_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"⚠️ This topic is already hard-linked to session `{s_name}`.\nYou must delete it first or create a new topic.",
             )
             return
-    else:
-        # User is in General chat, prompt them to pick a topic via SwitchInlineQueryChosenChat
+    elif getattr(update.effective_chat, "is_forum", False):
+        # User is in General chat of a forum, prompt them to pick a topic via SwitchInlineQueryChosenChat
         switch_query = f" /new {name}"
         if path:
             switch_query += f" {path}"

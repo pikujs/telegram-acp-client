@@ -201,7 +201,6 @@ async def start_agent_service(update, context, db_id, path, thread_id=None):
 
     async with typing_action(context, chat_id):
         await acp_service.start_session(db_id, path, client)
-        context.user_data["current_session_id"] = db_id
 
         try:
             files = [f for f in os.listdir(path) if not f.startswith(".")]

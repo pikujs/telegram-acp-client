@@ -49,6 +49,34 @@ If you are on Arch Linux, you can install the package and its systemd service te
    ```
    This installs the executable and places the systemd service template in `/usr/lib/systemd/user/`.
 
+### NixOS Module (via Flake)
+If you manage your system with NixOS and Flakes, you can import this repository to define and run bot instances declaratively as systemd services.
+
+1. **Add the flake to your `flake.nix` inputs:**
+   ```nix
+   inputs.telegram-acp-client.url = "git+https://gitlab.pikujs.com/pikujs/telegram-acp-client.git";
+   ```
+
+2. **Import the module and configure instances:**
+   ```nix
+   { inputs, ... }: {
+     imports = [ inputs.telegram-acp-client.nixosModules.default ];
+
+     services.telegram-acp-client = {
+       enable = true;
+       instances."my-bot" = {
+         telegramTokenFile = "/run/secrets/telegram-bot-token";
+         allowedUserIds = [ 123456789 ];
+         agentCommand = "gemini --experimental-acp";
+         # Optional:
+         # logLevel = "INFO";
+         # userProjectsDir = "/home/user/projects";
+       };
+     };
+   }
+   ```
+   This will automatically create a systemd service named `telegram-acp-client-my-bot.service` configured to run your bot instance.
+
 ### Systemd Setup (Other Linux distros/Not installed from PKGBUILD)
 To use the automated service management features on Linux, install the service template:
 ```bash
