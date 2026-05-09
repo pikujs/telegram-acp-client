@@ -90,7 +90,14 @@ class TelegramGeminiClient(Client):
         handler = self._HANDLERS.get(update_type)
         if handler:
             try:
-                await handler(session_id, update)
+                session = self._get_session_by_acp_id(session_id)
+                if session:
+                    # Sequential Processing: Use the session lock to prevent race conditions 
+                    # during simultaneous Thought/Message/Tool updates.
+                    async with session.update_lock:
+                        await handler(session_id, update)
+                else:
+                    await handler(session_id, update)
             except Exception as e:
                 logger.exception(f"Error in {update_type} handler: {e}")
         else:
@@ -490,6 +497,7 @@ class ActiveSession:
         self.is_busy = False
         self.draft_streamer = None  # Set by bot layer
         self.available_commands = []
+        self.update_lock = asyncio.Lock()  # Ensures sequential processing of session updates
 
         # Registry for UI-aware Nodes (owns state and UI)
         self.nodes: dict[str, Any] = {}
@@ -516,7 +524,9 @@ class ACPService:
     async def start_session(
         self, db_id: int, path: str, client: TelegramGeminiClient
     ) -> ActiveSession:
-        agent_cmd = settings.AGENT_COMMAND.split()
+        # Wrap the agent command in a login shell to ensure the user's environment
+        # (like PATH for Nix or Homebrew) is fully loaded.
+        agent_cmd = ["/bin/bash", "-l", "-c", settings.AGENT_COMMAND]
 
         try:
             proc = await asyncio.create_subprocess_exec(

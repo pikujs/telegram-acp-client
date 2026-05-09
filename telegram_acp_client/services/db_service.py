@@ -19,7 +19,8 @@ class DBService:
                     thread_id INTEGER DEFAULT 0,
                     name TEXT,
                     path TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             async with db.execute("PRAGMA table_info(sessions)") as cursor:
@@ -27,6 +28,10 @@ class DBService:
                 if "thread_id" not in columns:
                     await db.execute(
                         "ALTER TABLE sessions ADD COLUMN thread_id INTEGER DEFAULT 0"
+                    )
+                if "last_active_at" not in columns:
+                    await db.execute(
+                        "ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP DEFAULT '1970-01-01 00:00:00'"
                     )
 
             await db.execute("""
@@ -45,6 +50,9 @@ class DBService:
                 "CREATE INDEX IF NOT EXISTS idx_sessions_chat_thread ON sessions(chat_id, thread_id)"
             )
             await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at)"
+            )
+            await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)"
             )
 
@@ -55,13 +63,24 @@ class DBService:
     ):
         tid = thread_id or 0
         async with aiosqlite.connect(self.db_path) as db:
+            if tid != 0:
+                # For threads, we want to ensure only one session is "linked" to this thread.
+                # Unlink any other session that was linked to this thread.
+                await db.execute(
+                    "UPDATE sessions SET thread_id = 0 WHERE chat_id = ? AND thread_id = ?",
+                    (chat_id, tid),
+                )
+                # Link the new session to this thread.
+                await db.execute(
+                    "UPDATE sessions SET thread_id = ? WHERE id = ?",
+                    (tid, session_id),
+                )
+            
+            # Always update last_active_at to mark this as the most recently used session
+            # in its respective context (main chat or thread).
             await db.execute(
-                "UPDATE sessions SET thread_id = 0 WHERE chat_id = ? AND thread_id = ?",
-                (chat_id, tid),
-            )
-            await db.execute(
-                "UPDATE sessions SET thread_id = ? WHERE id = ?",
-                (tid, session_id),
+                "UPDATE sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,),
             )
             await db.commit()
 
@@ -70,8 +89,9 @@ class DBService:
     ) -> int | None:
         tid = thread_id or 0
         async with aiosqlite.connect(self.db_path) as db:
+            # We sort by last_active_at DESC to get the session the user was actually on.
             async with db.execute(
-                "SELECT id FROM sessions WHERE chat_id = ? AND thread_id = ?",
+                "SELECT id FROM sessions WHERE chat_id = ? AND thread_id = ? ORDER BY last_active_at DESC, id DESC LIMIT 1",
                 (chat_id, tid),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -83,7 +103,7 @@ class DBService:
         tid = thread_id or 0
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                "INSERT INTO sessions (chat_id, thread_id, name, path) VALUES (?, ?, ?, ?)",
+                "INSERT INTO sessions (chat_id, thread_id, name, path, last_active_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (chat_id, tid, name, path),
             )
             await db.commit()
@@ -162,6 +182,10 @@ class DBService:
             await db.execute(
                 "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
                 (session_id, role, content),
+            )
+            await db.execute(
+                "UPDATE sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,),
             )
             await db.commit()
 
