@@ -29,7 +29,12 @@
             version = "0.8.1";
             hash = "sha256-G78VZjv1H2SUJZf2OOMqYoTF2pGAVdlnLTUQ6WUUPb0=";
           };
-          format = "setuptools";
+          format = "pyproject";
+          nativeBuildInputs = with pkgs.python312Packages; [
+            pdm-backend
+            setuptools
+            wheel
+          ];
           propagatedBuildInputs = with pkgs.python312Packages; [
             pydantic
           ];
