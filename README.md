@@ -77,6 +77,21 @@ If you manage your system with NixOS and Flakes, you can import this repository 
    ```
    This will automatically create a systemd service named `telegram-acp-client-my-bot.service` configured to run your bot instance.
 
+### Agent Skill (Automation)
+For users of AI agents (like **Gemini CLI**, **Claude Code**, or **Cursor**), this repository includes a skill that provides the agent with procedural knowledge to autonomously setup and manage your bot instances.
+
+**Install from the Repository (Universal):**
+```bash
+npx skills add https://gitlab.pikujs.com/pikujs/telegram-acp-client
+```
+
+**Install from a Local Clone:**
+```bash
+npx skills add ./skills/telegram-acp-client
+```
+
+*Note: After installation, remember to reload your agent's skills (e.g., `/skills reload` or restart your agent).*
+
 ### Systemd Setup (Other Linux distros/Not installed from PKGBUILD)
 To use the automated service management features on Linux, install the service template:
 ```bash

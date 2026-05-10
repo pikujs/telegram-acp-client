@@ -259,6 +259,7 @@ async def start_agent_service(update, context, db_id, path, thread_id=None):
 
 @authorized_only
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"RECEIVED MESSAGE from {update.effective_user.id}: {update.message.text or update.message.caption or '[Media]'}")
     chat_id = update.effective_chat.id
     thread_id = extract_thread_id(update)
 

@@ -45,10 +45,14 @@ class InteractionNode:
     async def render(self):
         """Refreshes the Telegram UI for this node. Provides a fallback display."""
         # Use kind if set (from create_node factory), otherwise class name
-        kind_name = getattr(self, 'kind', self.__class__.__name__.replace('Node', '')).title()
-        text = f"*{kind_name}:* {self.entity_id}"
+        kind_name = getattr(self, "kind", self.__class__.__name__.replace("Node", "")).title()
         
-        from telegram_acp_client.bot.messaging import send_safe_message, safe_edit
+        from telegram_acp_client.bot.formatting import escape_markdown
+        from telegram_acp_client.bot.messaging import safe_edit, send_safe_message
+        
+        safe_entity_id = escape_markdown(str(self.entity_id))
+        text = f"*{kind_name}:* {safe_entity_id}"
+
         if not self.messages:
             msg = await send_safe_message(self.context, self.chat_id, text, message_thread_id=self.thread_id)
             if msg: self.messages.append(msg)

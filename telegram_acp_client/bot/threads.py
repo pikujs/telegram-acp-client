@@ -1,6 +1,5 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram_acp_client.services.db_service import db_service
 
 
 def extract_thread_id(update: Update) -> int | None:
@@ -23,15 +22,16 @@ async def get_current_session_id(
     chat_id = update.effective_chat.id
     thread_id = extract_thread_id(update)
 
-    # Check cache first
-    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
-    if cache_key in context.user_data:
-        return context.user_data[cache_key]
-
-    # Fallback to DB
+    cache_key = f"current_session_id_{thread_id or 0}"
+    sid = context.chat_data.get(cache_key)
+    if sid:
+        return sid
+    
+    # Fallback to database
+    from telegram_acp_client.services.db_service import db_service
     sid = await db_service.get_last_session_id(chat_id, thread_id)
     if sid:
-        context.user_data[cache_key] = sid
+        context.chat_data[cache_key] = sid
     return sid
 
 
@@ -41,12 +41,16 @@ async def set_current_session_id(
     session_id: int,
     thread_id: int | None = None,
 ):
-    """Sets the active session ID for the current chat and thread. Persists to DB."""
+    """Sets the active session ID for the current chat and thread and persists it."""
     chat_id = update.effective_chat.id
     if thread_id is None:
         thread_id = extract_thread_id(update)
-    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
-    context.user_data[cache_key] = session_id
+    
+    cache_key = f"current_session_id_{thread_id or 0}"
+    context.chat_data[cache_key] = session_id
+
+    # Persist to database so it survives restarts and is shared across users
+    from telegram_acp_client.services.db_service import db_service
     await db_service.set_last_session(chat_id, thread_id, session_id)
 
 
@@ -54,6 +58,6 @@ def clear_current_session_id(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Clears the active session ID for the current chat and thread."""
     chat_id = update.effective_chat.id
     thread_id = extract_thread_id(update)
-    cache_key = f"current_session_id_{chat_id}_{thread_id or 0}"
-    if cache_key in context.user_data:
-        del context.user_data[cache_key]
+    cache_key = f"current_session_id_{thread_id or 0}"
+    if cache_key in context.chat_data:
+        del context.chat_data[cache_key]

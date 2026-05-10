@@ -91,9 +91,9 @@ class ToolNode(InteractionNode):
         else:
             text = f"{progress_prefix}{status_emoji} *Tool {status_text}* (`{self.entity_id}`): {safe_title}"
 
-        # 2. Add results if completed
+        # 2. Add results
         keyboard = []
-        if self.status == "completed" and self.content:
+        if self.content:
             text += "\n"
             full_buffer = ""
             for item in self.content:
