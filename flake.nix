@@ -27,7 +27,7 @@
           src = pkgs.fetchPypi {
             pname = "agent_client_protocol";
             version = "0.8.1";
-            hash = "sha256-G78VZrG7iIyTPE+IPLP6RN9Lp2SBRNUYOMygfhuK294=";
+            hash = "sha256-G78VZjv1H2SUJZf2OOMqYoTF2pGAVdlnLTUQ6WUUPb0=";
           };
           format = "setuptools";
           propagatedBuildInputs = with pkgs.python312Packages; [
