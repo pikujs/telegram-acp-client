@@ -20,6 +20,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "python-telegram-bot[callback-data]>=22.6",
     "platformdirs>=4.0.0",
+    "cachetools>=5.0.0",
 ]
 
 [project.scripts]

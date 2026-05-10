@@ -72,6 +72,7 @@
             python-telegram-bot
             platformdirs
             pydantic
+            cachetools
           ]) ++ [ agent-client-protocol ];
 
           # Disable tests for now as we don't have them configured in Nix yet
