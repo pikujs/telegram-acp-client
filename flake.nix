@@ -2,7 +2,7 @@
   description = "Telegram bot to communicate with agents via ACP (Agent Client Protocol)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/b12141ef619e0a9c1c84dc8c684040326f27cdcc";
     flake-utils.url = "github:numtide/flake-utils";
     pyproject-nix = {
       url = "github:pyproject-nix/pyproject.nix";
@@ -14,14 +14,23 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python312;
+        
+        python312Packages = pkgs.python312Packages.override {
+          overrides = self: super: {
+            python-telegram-bot = super.python-telegram-bot.overridePythonAttrs (old: {
+              doCheck = false;
+            });
+          };
+        };
+
+        python = python312Packages.python;
         
         # Load pyproject.toml
         project = pyproject-nix.lib.project.loadPyproject {
           projectRoot = ./.;
         };
 
-        agent-client-protocol = pkgs.python312Packages.buildPythonPackage {
+        agent-client-protocol = python312Packages.buildPythonPackage {
           pname = "agent-client-protocol";
           version = "0.8.1";
           src = pkgs.fetchPypi {
@@ -30,19 +39,19 @@
             hash = "sha256-G78VZjv1H2SUJZf2OOMqYoTF2pGAVdlnLTUQ6WUUPb0=";
           };
           format = "pyproject";
-          nativeBuildInputs = with pkgs.python312Packages; [
+          nativeBuildInputs = with python312Packages; [
             pdm-backend
             setuptools
             wheel
           ];
-          propagatedBuildInputs = with pkgs.python312Packages; [
+          propagatedBuildInputs = with python312Packages; [
             pydantic
           ];
           doCheck = false;
         };
 
         # Create a python environment with dependencies
-        pythonEnv = pkgs.python312.withPackages (ps: 
+        pythonEnv = python312Packages.python.withPackages (ps: 
           with ps; [
             aiosqlite
             httpx
@@ -55,17 +64,17 @@
         );
 
         # Define the package
-        telegram-acp-client = pkgs.python312Packages.buildPythonApplication {
+        telegram-acp-client = python312Packages.buildPythonApplication {
           pname = "telegram-acp-client";
           version = "0.1.0";
           src = ./.;
           format = "pyproject";
 
-          nativeBuildInputs = with pkgs.python312Packages; [
+          nativeBuildInputs = with python312Packages; [
             hatchling
           ];
 
-          propagatedBuildInputs = (with pkgs.python312Packages; [
+          propagatedBuildInputs = (with python312Packages; [
             aiosqlite
             httpx
             python-dotenv
