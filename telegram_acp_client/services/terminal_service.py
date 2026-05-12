@@ -78,10 +78,12 @@ class TerminalService:
         self._cwd_registry[chat_id] = path
 
     async def run_shell(self, chat_id: int, command: str, cwd: str, on_log: Callable[[str], Any], session_id: int | None = None) -> str:
+        from telegram_acp_client.utils import get_user_shell
+
         task_id = f"job-{len(self._tasks) + 1}"
 
         # Wrap the command in a login shell to ensure the user's environment is loaded
-        wrapped_command = ["/bin/bash", "-l", "-c", command]
+        wrapped_command = [get_user_shell(), "-l", "-c", command]
         proc = await asyncio.create_subprocess_exec(
             *wrapped_command,
             cwd=cwd,

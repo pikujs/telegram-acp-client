@@ -524,9 +524,11 @@ class ACPService:
     async def start_session(
         self, db_id: int, path: str, client: TelegramGeminiClient
     ) -> ActiveSession:
+        from telegram_acp_client.utils import get_user_shell
+
         # Wrap the agent command in a login shell to ensure the user's environment
         # (like PATH for Nix or Homebrew) is fully loaded.
-        agent_cmd = ["/bin/bash", "-l", "-c", settings.AGENT_COMMAND]
+        agent_cmd = [get_user_shell(), "-l", "-c", settings.AGENT_COMMAND]
 
         try:
             proc = await asyncio.create_subprocess_exec(
